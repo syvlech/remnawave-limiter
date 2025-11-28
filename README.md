@@ -55,12 +55,12 @@
 
 ### Автоматическая установка (рекомендуется)
 
-```bash
 # 1. Скачайте репозиторий
-git clone https://github.com/syvlech/remnawave-limiter.git
-cd remnawave-limiter
-
+```bash
+git clone https://github.com/syvlech/remnawave-limiter.git && cd remnawave-limiter
+```
 # 2. Запустите установку
+```bash
 sudo bash install.sh
 ```
 

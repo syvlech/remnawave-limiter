@@ -15,7 +15,7 @@
 - [Конфигурация](#%EF%B8%8F-конфигурация)
 - [Использование CLI](#-использование-cli)
 - [Webhook уведомления](#-webhook-уведомления)
-- [Whitelist email](#-whitelist-email)
+- [Whitelist email](#%EF%B8%8F-whitelist)
 - [Troubleshooting](#-troubleshooting)
 - [FAQ](#-faq)
 

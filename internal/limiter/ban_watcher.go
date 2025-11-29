@@ -73,13 +73,8 @@ func (l *Limiter) watchBannedLog() {
 				}
 			}
 
-			file, err := os.Open(bannedLogPath)
-			if err != nil {
-				l.logger.WithError(err).Error("Ошибка открытия banned.log")
-				continue
-			}
-			defer file.Close()
-
+			lastSize = currentSize
+			file.Close()
 		}
 
 		if currentSize < lastSize {

@@ -124,17 +124,6 @@ sudo systemctl restart remnawave-limiter
 
 ## 🖥️ Использование CLI
 
-### Быстрый старт
-
-```bash
-limiter-cli status          # Статус системы
-limiter-cli violations      # Последние нарушения
-limiter-cli banned          # Забаненные IP
-limiter-cli unban 1.2.3.4   # Разбанить IP
-limiter-cli active          # Активные подключения
-```
-
-### Все команды
 ```bash
   limiter-cli status                    # Показать статус системы
   limiter-cli violations                # Последние 20 нарушений

@@ -217,7 +217,7 @@ filter = remnawave-limiter
 action = remnawave-limiter
 logpath = ${VIOLATION_LOG}
 maxretry = 3
-findtime = 300
+findtime = 60
 bantime = ${bantime}m
 EOF
 
@@ -244,10 +244,10 @@ actionstop = <iptables> -D <chain> -p <protocol> -j f2b-<name>
 actioncheck = <iptables> -n -L <chain> | grep -q 'f2b-<name>[ \t]'
 
 actionban = <iptables> -I f2b-<name> 1 -s <ip> -j <blocktype>
-            echo "\$(date +\"%%Y/%%m/%%d %%H:%%M:%%S\") BAN [Email] = <mlfid> [IP] = <ip> banned for <bantime> seconds." >> ${BANNED_LOG}
+            echo "\$(date +\"%%Y/%%m/%%d %%H:%%M:%%S\") BAN [Email] = <F-MLFID> [IP] = <ip> banned for <bantime> seconds." >> ${BANNED_LOG}
 
 actionunban = <iptables> -D f2b-<name> -s <ip> -j <blocktype>
-              echo "\$(date +\"%%Y/%%m/%%d %%H:%%M:%%S\") UNBAN [Email] = <mlfid> [IP] = <ip> unbanned." >> ${BANNED_LOG}
+              echo "\$(date +\"%%Y/%%m/%%d %%H:%%M:%%S\") UNBAN [Email] = <F-MLFID> [IP] = <ip> unbanned." >> ${BANNED_LOG}
 
 [Init]
 name = default

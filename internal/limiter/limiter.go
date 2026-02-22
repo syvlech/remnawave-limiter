@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"regexp"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -27,9 +26,8 @@ type Limiter struct {
 	violationCacheMu sync.RWMutex
 	lastClear        atomic.Int64
 	webhookWg        sync.WaitGroup
-	whitelistSet     map[string]struct{}
-	violationPattern *regexp.Regexp
-	httpClient       *http.Client
+	whitelistSet map[string]struct{}
+	httpClient   *http.Client
 }
 
 func NewLimiter(cfg *config.Config, logger, violationLogger *logrus.Logger) *Limiter {
@@ -44,8 +42,7 @@ func NewLimiter(cfg *config.Config, logger, violationLogger *logrus.Logger) *Lim
 		violationLogger:  violationLogger,
 		parser:           parser.NewParser(),
 		violationCache:   make(map[string]map[string]int64),
-		whitelistSet:     whitelistSet,
-		violationPattern: regexp.MustCompile(`\[LIMIT_IP\]\s+Email\s+=\s+(\S+)\s+\|\|\s+SRC\s+=\s+\S+`),
+		whitelistSet: whitelistSet,
 		httpClient: &http.Client{
 			Timeout: 5 * time.Second,
 		},
@@ -65,9 +62,7 @@ func (l *Limiter) Run() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	if l.config.WebhookURL != "" {
-		go l.watchBannedLog(ctx)
-	}
+	go l.watchBannedLog(ctx)
 
 	ticker := time.NewTicker(time.Duration(l.config.CheckInterval) * time.Second)
 	defer ticker.Stop()

@@ -1,6 +1,6 @@
 .PHONY: build clean install test deploy
 
-GO_VERSION := 1.21
+GO_VERSION := 1.26
 
 LIMITER_BIN := remnawave-limiter
 CLI_BIN := limiter-cli

@@ -86,21 +86,21 @@ func (l *Limiter) Run() {
 }
 
 func (l *Limiter) processLogFile() {
-	shouldClearLog := l.checkViolations()
+	l.checkViolations()
 
 	currentTime := time.Now().Unix()
-	if shouldClearLog || (currentTime-l.lastClear.Load() > int64(l.config.LogClearInterval)) {
+	if currentTime-l.lastClear.Load() > int64(l.config.LogClearInterval) {
 		l.clearAccessLog()
 	}
 }
 
-func (l *Limiter) checkViolations() bool {
+func (l *Limiter) checkViolations() {
 	file, err := os.Open(l.config.RemnawaveLogPath)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			l.logger.WithError(err).Error("Ошибка открытия лога")
 		}
-		return false
+		return
 	}
 	defer file.Close()
 
@@ -128,14 +128,12 @@ func (l *Limiter) checkViolations() bool {
 
 	if err := scanner.Err(); err != nil {
 		l.logger.WithError(err).Error("Ошибка чтения лога")
-		return false
+		return
 	}
 
 	if latestTimestamp.IsZero() {
-		return false
+		return
 	}
-
-	shouldClearLog := false
 
 	for email, ipTimes := range emailIPTimes {
 		if l.isWhitelisted(email) {
@@ -145,12 +143,9 @@ func (l *Limiter) checkViolations() bool {
 		activeIPs := l.getActiveIPs(ipTimes, latestTimestamp)
 
 		if len(activeIPs) > l.config.MaxIPsPerKey {
-			shouldClearLog = true
 			l.handleViolation(email, activeIPs)
 		}
 	}
-
-	return shouldClearLog
 }
 
 type ipWithTime struct {
@@ -221,12 +216,26 @@ func (l *Limiter) clearAccessLog() {
 	}
 	file.Close()
 
-	l.violationCacheMu.Lock()
-	l.violationCache = make(map[string]map[string]int64)
-	l.violationCacheMu.Unlock()
+	l.evictStaleViolations()
 
 	l.lastClear.Store(time.Now().Unix())
 	l.logger.Info("🗑️ Лог Remnawave очищен (truncated)")
+}
+
+func (l *Limiter) evictStaleViolations() {
+	threshold := time.Now().Unix() - 300
+	l.violationCacheMu.Lock()
+	for email, ips := range l.violationCache {
+		for ip, ts := range ips {
+			if ts < threshold {
+				delete(ips, ip)
+			}
+		}
+		if len(ips) == 0 {
+			delete(l.violationCache, email)
+		}
+	}
+	l.violationCacheMu.Unlock()
 }
 
 func (l *Limiter) isWhitelisted(email string) bool {

@@ -97,6 +97,8 @@ ask_yes_no() {
     done
 }
 
+GO_INSTALLED_BY_US=false
+
 install_go() {
     if command -v go &>/dev/null || [ -x "/usr/local/go/bin/go" ]; then
         if command -v go &>/dev/null; then
@@ -128,7 +130,7 @@ install_go() {
             ;;
     esac
 
-    GO_VERSION="1.21.6"
+    GO_VERSION="1.26.0"
     GO_TAR="go${GO_VERSION}.linux-${GO_ARCH}.tar.gz"
     GO_URL="https://go.dev/dl/${GO_TAR}"
 
@@ -152,6 +154,7 @@ install_go() {
     export PATH=$PATH:/usr/local/go/bin
 
     if command -v go &>/dev/null; then
+        GO_INSTALLED_BY_US=true
         print_success "Go установлен успешно: $(go version)"
         return 0
     else
@@ -217,7 +220,7 @@ filter = remnawave-limiter
 action = remnawave-limiter
 logpath = ${VIOLATION_LOG}
 maxretry = 3
-findtime = 60
+findtime = 300
 bantime = ${bantime}m
 EOF
 
@@ -385,9 +388,16 @@ ln -sf "$INSTALL_DIR/limiter-cli" /usr/local/bin/limiter-cli
 print_success "Приложение собрано и установлено"
 echo ""
 
-print_info "Очистка кэша Go и исходных файлов..."
+print_info "Очистка кэша Go..."
 go clean -modcache -cache 2>/dev/null
-print_success "Кэш Go очищен"
+if [ "$GO_INSTALLED_BY_US" = true ]; then
+    print_info "Удаление Go (установлен скриптом, для работы не требуется)..."
+    rm -rf /usr/local/go
+    sed -i '/\/usr\/local\/go\/bin/d' /etc/profile 2>/dev/null
+    print_success "Go удалён"
+else
+    print_success "Кэш Go очищен"
+fi
 echo ""
 
 cp "$ENV_FILE" "$INSTALL_DIR/"

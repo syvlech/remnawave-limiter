@@ -104,7 +104,8 @@ func (l *Limiter) checkViolations() {
 	}
 	defer file.Close()
 
-	emailIPTimes := make(map[string]map[string]time.Time)
+	emailIPLastSeen := make(map[string]map[string]time.Time)
+	emailIPFirstSeen := make(map[string]map[string]time.Time)
 	var latestTimestamp time.Time
 
 	scanner := bufio.NewScanner(file)
@@ -115,11 +116,15 @@ func (l *Limiter) checkViolations() {
 			continue
 		}
 
-		if emailIPTimes[entry.Email] == nil {
-			emailIPTimes[entry.Email] = make(map[string]time.Time)
+		if emailIPLastSeen[entry.Email] == nil {
+			emailIPLastSeen[entry.Email] = make(map[string]time.Time)
+			emailIPFirstSeen[entry.Email] = make(map[string]time.Time)
 		}
 
-		emailIPTimes[entry.Email][entry.IP] = entry.Timestamp
+		if _, exists := emailIPFirstSeen[entry.Email][entry.IP]; !exists {
+			emailIPFirstSeen[entry.Email][entry.IP] = entry.Timestamp
+		}
+		emailIPLastSeen[entry.Email][entry.IP] = entry.Timestamp
 
 		if entry.Timestamp.After(latestTimestamp) {
 			latestTimestamp = entry.Timestamp
@@ -135,12 +140,12 @@ func (l *Limiter) checkViolations() {
 		return
 	}
 
-	for email, ipTimes := range emailIPTimes {
+	for email, ipLastSeen := range emailIPLastSeen {
 		if l.isWhitelisted(email) {
 			continue
 		}
 
-		activeIPs := l.getActiveIPs(ipTimes, latestTimestamp)
+		activeIPs := l.getActiveIPs(ipLastSeen, emailIPFirstSeen[email], latestTimestamp)
 
 		if len(activeIPs) > l.config.MaxIPsPerKey {
 			l.handleViolation(email, activeIPs)
@@ -149,22 +154,21 @@ func (l *Limiter) checkViolations() {
 }
 
 type ipWithTime struct {
-	ip       string
-	lastSeen time.Time
+	ip        string
+	firstSeen time.Time
 }
 
-func (l *Limiter) getActiveIPs(ipTimes map[string]time.Time, latestTimestamp time.Time) []string {
+func (l *Limiter) getActiveIPs(ipLastSeen, ipFirstSeen map[string]time.Time, latestTimestamp time.Time) []string {
 	var active []ipWithTime
 
-	for ip, lastSeen := range ipTimes {
-		timeDiff := latestTimestamp.Sub(lastSeen).Seconds()
-		if timeDiff <= 60 {
-			active = append(active, ipWithTime{ip: ip, lastSeen: lastSeen})
+	for ip, lastSeen := range ipLastSeen {
+		if latestTimestamp.Sub(lastSeen).Seconds() <= 60 {
+			active = append(active, ipWithTime{ip: ip, firstSeen: ipFirstSeen[ip]})
 		}
 	}
 
 	sort.Slice(active, func(i, j int) bool {
-		return active[i].lastSeen.Before(active[j].lastSeen)
+		return active[i].firstSeen.Before(active[j].firstSeen)
 	})
 
 	activeIPs := make([]string, len(active))

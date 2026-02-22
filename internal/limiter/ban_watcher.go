@@ -12,12 +12,14 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-var banPattern = regexp.MustCompile(`(BAN|UNBAN).*\[IP\]\s+=\s+(\S+)`)
+var banPattern = regexp.MustCompile(`(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})\s+(BAN|UNBAN)\s+\[Email\]\s+=\s+(\S+)\s+\[IP\]\s+=\s+(\S+)`)
+
+const banEventMaxAge = 60 * time.Second
 
 func (l *Limiter) watchBannedLog(ctx context.Context) {
 	bannedLogPath := "/var/log/remnawave-limiter/banned.log"
 
-	l.logger.Info("📡 Запущен webhook watcher для banned.log")
+	l.logger.Info("📡 Запущен мониторинг banned.log")
 
 	var lastSize int64 = 0
 	if fileInfo, err := os.Stat(bannedLogPath); err == nil {
@@ -31,7 +33,7 @@ func (l *Limiter) watchBannedLog(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			l.logger.Info("📡 Webhook watcher остановлен")
+			l.logger.Info("📡 Мониторинг banned.log остановлен")
 			return
 		case <-ticker.C:
 		}
@@ -69,22 +71,41 @@ func (l *Limiter) watchBannedLog(ctx context.Context) {
 				line := scanner.Text()
 
 				match := banPattern.FindStringSubmatch(line)
-				if len(match) >= 3 {
-					action := strings.ToLower(match[1])
-					ip := match[2]
-
-					subscriptionID := l.getSubscriptionIDByIP(ip)
-					if subscriptionID == "" {
-						subscriptionID = "unknown"
+				if len(match) >= 5 {
+					eventTime, err := time.Parse("2006/01/02 15:04:05", match[1])
+					if err != nil {
+						continue
 					}
 
-					l.logger.WithFields(logrus.Fields{
-						"subscription_id": subscriptionID,
-						"ip":              ip,
-						"action":          action,
-					}).Info("📨 Обнаружен бан/разбан в fail2ban, отправляем webhook")
+					action := strings.ToLower(match[2])
+					email := match[3]
+					ip := match[4]
 
-					l.sendWebhook(ctx, subscriptionID, ip, l.config.MaxIPsPerKey+1, action)
+					if action == "ban" {
+						l.logger.WithFields(logrus.Fields{
+							"email":    email,
+							"ip":       ip,
+							"duration": l.config.BanDurationMinutes,
+						}).Warnf("🔒 Заблокирован: %s (подписка %s) на %d мин.", ip, email, l.config.BanDurationMinutes)
+					} else {
+						l.logger.WithFields(logrus.Fields{
+							"email": email,
+							"ip":    ip,
+						}).Infof("🔓 Разблокирован: %s (подписка %s)", ip, email)
+					}
+
+					if l.config.WebhookURL != "" {
+						if time.Since(eventTime) > banEventMaxAge {
+							l.logger.WithFields(logrus.Fields{
+								"email":  email,
+								"ip":     ip,
+								"action": action,
+								"age":    time.Since(eventTime).Round(time.Second).String(),
+							}).Debug("Пропуск webhook для старого события")
+							continue
+						}
+						l.sendWebhook(ctx, email, ip, l.config.MaxIPsPerKey+1, action)
+					}
 				}
 			}
 
@@ -103,42 +124,4 @@ func (l *Limiter) watchBannedLog(ctx context.Context) {
 			file.Close()
 		}
 	}
-}
-
-func (l *Limiter) getSubscriptionIDByIP(ip string) string {
-	l.violationCacheMu.RLock()
-	for email, ips := range l.violationCache {
-		if _, ok := ips[ip]; ok {
-			l.violationCacheMu.RUnlock()
-			return email
-		}
-	}
-	l.violationCacheMu.RUnlock()
-
-	file, err := os.Open(l.config.ViolationLogPath)
-	if err != nil {
-		return ""
-	}
-	defer file.Close()
-
-	var lastMatch string
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if !strings.Contains(line, ip) {
-			continue
-		}
-		if match := l.violationPattern.FindStringSubmatch(line); len(match) >= 2 {
-			if strings.Contains(line, "SRC = "+ip) {
-				lastMatch = match[1]
-			}
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		l.logger.WithError(err).Warn("Ошибка чтения лога нарушений при поиске подписки")
-	}
-
-	return lastMatch
 }

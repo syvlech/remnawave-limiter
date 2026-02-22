@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/remnawave/limiter/internal/version"
 )
 
 const (
@@ -37,6 +39,8 @@ func main() {
 	command := os.Args[1]
 
 	switch command {
+	case "version":
+		fmt.Printf("remnawave-limiter v%s\n", version.Version)
 	case "status":
 		showStatus()
 	case "violations":
@@ -83,7 +87,7 @@ func main() {
 }
 
 func printHelp() {
-	fmt.Println("Remnawave IP Limiter CLI")
+	fmt.Printf("Remnawave IP Limiter CLI v%s\n", version.Version)
 	fmt.Println("\nИспользование:")
 	fmt.Println("  limiter-cli status                    # Показать статус системы")
 	fmt.Println("  limiter-cli violations                # Последние 20 нарушений")
@@ -95,6 +99,7 @@ func printHelp() {
 	fmt.Println("  limiter-cli logs                      # Последние 50 строк логов")
 	fmt.Println("  limiter-cli logs -f                   # Следить за логами (Ctrl+C для выхода)")
 	fmt.Println("  limiter-cli clear                     # Очистить все логи")
+	fmt.Println("  limiter-cli version                   # Показать версию")
 }
 
 func runCommand(name string, args ...string) (string, error) {

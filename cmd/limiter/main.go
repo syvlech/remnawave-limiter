@@ -5,6 +5,7 @@ import (
 
 	"github.com/remnawave/limiter/internal/config"
 	"github.com/remnawave/limiter/internal/limiter"
+	"github.com/remnawave/limiter/internal/version"
 	"github.com/remnawave/limiter/pkg/logger"
 )
 
@@ -25,6 +26,8 @@ func main() {
 		log.Fatalf("Ошибка настройки логирования нарушений: %v", err)
 	}
 	defer violationLogFile.Close()
+
+	mainLogger.Infof("📦 Версия: %s", version.Version)
 
 	l := limiter.NewLimiter(cfg, mainLogger, violationLogger)
 	l.Run()

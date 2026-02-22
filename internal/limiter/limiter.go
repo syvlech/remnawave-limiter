@@ -2,12 +2,14 @@ package limiter
 
 import (
 	"bufio"
-	"fmt"
+	"context"
+	"net/http"
 	"os"
 	"os/signal"
+	"regexp"
 	"sort"
-	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -23,20 +25,33 @@ type Limiter struct {
 	parser           *parser.Parser
 	violationCache   map[string]map[string]int64
 	violationCacheMu sync.RWMutex
-	lastClear        int64
-	running          bool
+	lastClear        atomic.Int64
+	webhookWg        sync.WaitGroup
+	whitelistSet     map[string]struct{}
+	violationPattern *regexp.Regexp
+	httpClient       *http.Client
 }
 
 func NewLimiter(cfg *config.Config, logger, violationLogger *logrus.Logger) *Limiter {
-	return &Limiter{
-		config:          cfg,
-		logger:          logger,
-		violationLogger: violationLogger,
-		parser:          parser.NewParser(),
-		violationCache:  make(map[string]map[string]int64),
-		lastClear:       time.Now().Unix(),
-		running:         true,
+	whitelistSet := make(map[string]struct{}, len(cfg.WhitelistEmails))
+	for _, email := range cfg.WhitelistEmails {
+		whitelistSet[email] = struct{}{}
 	}
+
+	l := &Limiter{
+		config:           cfg,
+		logger:           logger,
+		violationLogger:  violationLogger,
+		parser:           parser.NewParser(),
+		violationCache:   make(map[string]map[string]int64),
+		whitelistSet:     whitelistSet,
+		violationPattern: regexp.MustCompile(`\[LIMIT_IP\]\s+Email\s+=\s+(\S+)\s+\|\|\s+SRC\s+=\s+\S+`),
+		httpClient: &http.Client{
+			Timeout: 5 * time.Second,
+		},
+	}
+	l.lastClear.Store(time.Now().Unix())
+	return l
 }
 
 func (l *Limiter) Run() {
@@ -47,39 +62,34 @@ func (l *Limiter) Run() {
 	l.logger.Infof("🔄 Интервал проверки: %dс", l.config.CheckInterval)
 	l.logger.Infof("🗑️ Очистка лога каждые: %dс", l.config.LogClearInterval)
 
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	go func() {
-		sig := <-sigChan
-		l.logger.Infof("Получен сигнал %v, завершение работы...", sig)
-		l.running = false
-	}()
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
 	if l.config.WebhookURL != "" {
-		go l.watchBannedLog()
+		go l.watchBannedLog(ctx)
 	}
 
 	ticker := time.NewTicker(time.Duration(l.config.CheckInterval) * time.Second)
 	defer ticker.Stop()
 
-	for l.running {
+	for {
 		select {
+		case <-ctx.Done():
+			l.logger.Info("Получен сигнал завершения, ожидание webhook...")
+			l.webhookWg.Wait()
+			l.logger.Info("👋 IP Limiter остановлен")
+			return
 		case <-ticker.C:
 			l.processLogFile()
-		case <-sigChan:
-			l.running = false
 		}
 	}
-
-	l.logger.Info("👋 IP Limiter остановлен")
 }
 
 func (l *Limiter) processLogFile() {
 	shouldClearLog := l.checkViolations()
 
 	currentTime := time.Now().Unix()
-	if shouldClearLog || (currentTime-l.lastClear > int64(l.config.LogClearInterval)) {
+	if shouldClearLog || (currentTime-l.lastClear.Load() > int64(l.config.LogClearInterval)) {
 		l.clearAccessLog()
 	}
 }
@@ -98,6 +108,7 @@ func (l *Limiter) checkViolations() bool {
 	var latestTimestamp time.Time
 
 	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
 		entry := l.parser.ParseLine(scanner.Text())
 		if entry == nil {
@@ -142,17 +153,29 @@ func (l *Limiter) checkViolations() bool {
 	return shouldClearLog
 }
 
+type ipWithTime struct {
+	ip       string
+	lastSeen time.Time
+}
+
 func (l *Limiter) getActiveIPs(ipTimes map[string]time.Time, latestTimestamp time.Time) []string {
-	var activeIPs []string
+	var active []ipWithTime
 
 	for ip, lastSeen := range ipTimes {
 		timeDiff := latestTimestamp.Sub(lastSeen).Seconds()
 		if timeDiff <= 60 {
-			activeIPs = append(activeIPs, ip)
+			active = append(active, ipWithTime{ip: ip, lastSeen: lastSeen})
 		}
 	}
 
-	sort.Strings(activeIPs)
+	sort.Slice(active, func(i, j int) bool {
+		return active[i].lastSeen.Before(active[j].lastSeen)
+	})
+
+	activeIPs := make([]string, len(active))
+	for i, a := range active {
+		activeIPs[i] = a.ip
+	}
 	return activeIPs
 }
 
@@ -162,14 +185,19 @@ func (l *Limiter) handleViolation(email string, activeIPs []string) {
 	for _, bannedIP := range disallowedIPs {
 		now := time.Now().Unix()
 
+		shouldLog := false
 		l.violationCacheMu.Lock()
 		if l.violationCache[email] == nil {
 			l.violationCache[email] = make(map[string]int64)
 		}
 		lastLogged := l.violationCache[email][bannedIP]
+		if now-lastLogged > 60 {
+			l.violationCache[email][bannedIP] = now
+			shouldLog = true
+		}
 		l.violationCacheMu.Unlock()
 
-		if now-lastLogged > 60 {
+		if shouldLog {
 			l.violationLogger.Infof("[LIMIT_IP] Email = %s || SRC = %s", email, bannedIP)
 
 			l.logger.WithFields(logrus.Fields{
@@ -181,10 +209,6 @@ func (l *Limiter) handleViolation(email string, activeIPs []string) {
 				email, len(activeIPs), l.config.MaxIPsPerKey, bannedIP)
 
 			l.logger.Debugf("Активные IP для %s: %v", email, activeIPs)
-
-			l.violationCacheMu.Lock()
-			l.violationCache[email][bannedIP] = now
-			l.violationCacheMu.Unlock()
 		}
 	}
 }
@@ -201,23 +225,11 @@ func (l *Limiter) clearAccessLog() {
 	l.violationCache = make(map[string]map[string]int64)
 	l.violationCacheMu.Unlock()
 
-	l.lastClear = time.Now().Unix()
+	l.lastClear.Store(time.Now().Unix())
 	l.logger.Info("🗑️ Лог Remnawave очищен (truncated)")
 }
 
-func (l *Limiter) maskIP(ip string) string {
-	parts := strings.Split(ip, ".")
-	if len(parts) == 4 {
-		return fmt.Sprintf("%s.%s.**.**", parts[0], parts[1])
-	}
-	return ip
-}
-
 func (l *Limiter) isWhitelisted(email string) bool {
-	for _, whitelisted := range l.config.WhitelistEmails {
-		if email == whitelisted {
-			return true
-		}
-	}
-	return false
+	_, ok := l.whitelistSet[email]
+	return ok
 }

@@ -14,15 +14,17 @@ func main() {
 		log.Fatalf("Ошибка загрузки конфигурации: %v", err)
 	}
 
-	mainLogger, err := logger.SetupLogger("/var/log/remnawave-limiter/limiter.log")
+	mainLogger, mainLogFile, err := logger.SetupLogger("/var/log/remnawave-limiter/limiter.log")
 	if err != nil {
 		log.Fatalf("Ошибка настройки логирования: %v", err)
 	}
+	defer mainLogFile.Close()
 
-	violationLogger, err := logger.SetupViolationLogger(cfg.ViolationLogPath)
+	violationLogger, violationLogFile, err := logger.SetupViolationLogger(cfg.ViolationLogPath)
 	if err != nil {
 		log.Fatalf("Ошибка настройки логирования нарушений: %v", err)
 	}
+	defer violationLogFile.Close()
 
 	l := limiter.NewLimiter(cfg, mainLogger, violationLogger)
 	l.Run()

@@ -27,7 +27,7 @@ func (p *Parser) ParseLine(line string) *LogEntry {
 	timestampMatch := p.timestampPattern.FindStringSubmatch(line)
 	var timestamp time.Time
 	if len(timestampMatch) > 1 {
-		t, err := time.Parse("2006/01/02 15:04:05", timestampMatch[1])
+		t, err := time.ParseInLocation("2006/01/02 15:04:05", timestampMatch[1], time.Local)
 		if err == nil {
 			timestamp = t
 		}
@@ -45,14 +45,13 @@ func (p *Parser) ParseLine(line string) *LogEntry {
 		return nil
 	}
 
+	if timestamp.IsZero() {
+		return nil
+	}
+
 	return &LogEntry{
 		Email:     email,
 		IP:        ip,
 		Timestamp: timestamp,
 	}
-}
-
-func MaskIP(ip string) string {
-	re := regexp.MustCompile(`^(\d{1,3}\.\d{1,3})\.(\d{1,3}\.\d{1,3})$`)
-	return re.ReplaceAllString(ip, "$1.**.**")
 }

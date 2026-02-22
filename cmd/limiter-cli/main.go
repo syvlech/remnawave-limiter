@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"regexp"
@@ -21,10 +22,10 @@ const (
 )
 
 const (
-	JailName        = "remnawave-limiter"
-	ViolationLog    = "/var/log/remnawave-limiter/access-limiter.log"
-	RemnawaveLog    = "/var/log/remnanode/access.log"
-	ServiceName     = "remnawave-limiter"
+	JailName     = "remnawave-limiter"
+	ViolationLog = "/var/log/remnawave-limiter/access-limiter.log"
+	RemnawaveLog = "/var/log/remnanode/access.log"
+	ServiceName  = "remnawave-limiter"
 )
 
 func main() {
@@ -41,7 +42,10 @@ func main() {
 	case "violations":
 		lines := 20
 		if len(os.Args) > 2 && os.Args[2] == "-n" && len(os.Args) > 3 {
-			fmt.Sscanf(os.Args[3], "%d", &lines)
+			if _, err := fmt.Sscanf(os.Args[3], "%d", &lines); err != nil || lines <= 0 {
+				fmt.Printf("%s❌ Неверное значение для -n: %s (должно быть > 0)%s\n", ColorRed, os.Args[3], ColorNC)
+				os.Exit(1)
+			}
 		}
 		showViolations(lines)
 	case "banned":
@@ -66,7 +70,10 @@ func main() {
 				follow = true
 			}
 			if os.Args[i] == "-n" && i+1 < len(os.Args) {
-				fmt.Sscanf(os.Args[i+1], "%d", &lines)
+				if _, err := fmt.Sscanf(os.Args[i+1], "%d", &lines); err != nil || lines <= 0 {
+					fmt.Printf("%s❌ Неверное значение для -n: %s (должно быть > 0)%s\n", ColorRed, os.Args[i+1], ColorNC)
+					os.Exit(1)
+				}
 			}
 		}
 		showLogs(follow, lines)
@@ -157,6 +164,11 @@ func listBanned() {
 }
 
 func unbanIP(ip string) {
+	if net.ParseIP(ip) == nil {
+		fmt.Printf("%s❌ Неверный формат IP адреса: %s%s\n", ColorRed, ip, ColorNC)
+		os.Exit(1)
+	}
+
 	fmt.Printf("🔓 Разбан %s%s%s...\n", ColorCyan, ip, ColorNC)
 
 	_, err := runCommand("fail2ban-client", "set", JailName, "unbanip", ip)
@@ -215,19 +227,34 @@ func showViolations(tail int) {
 
 	fmt.Printf("%s📋 Последние %d нарушений:%s\n\n", ColorBlue, tail, ColorNC)
 
-	var lines []string
+	ring := make([]string, tail)
+	ringIdx := 0
+	total := 0
+
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
+		ring[ringIdx%tail] = scanner.Text()
+		ringIdx++
+		total++
 	}
 
-	start := 0
-	if len(lines) > tail {
-		start = len(lines) - tail
+	if total == 0 {
+		fmt.Printf("%s⚠️  Нет нарушений%s\n", ColorYellow, ColorNC)
+		return
+	}
+
+	count := total
+	if count > tail {
+		count = tail
+	}
+	start := (ringIdx - count) % tail
+	if start < 0 {
+		start += tail
 	}
 
 	re := regexp.MustCompile(`(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}).*Email = (\S+).*SRC = (\S+)`)
-	for _, line := range lines[start:] {
+	for i := 0; i < count; i++ {
+		line := ring[(start+i)%tail]
 		match := re.FindStringSubmatch(line)
 		if len(match) >= 4 {
 			timestamp := match[1]
@@ -240,10 +267,6 @@ func showViolations(tail int) {
 		} else {
 			fmt.Println(line)
 		}
-	}
-
-	if len(lines) == 0 {
-		fmt.Printf("%s⚠️  Нет нарушений%s\n", ColorYellow, ColorNC)
 	}
 }
 
@@ -324,6 +347,11 @@ func clearLogs() {
 		return
 	}
 
+	fmt.Printf("\n%sОстановка сервиса...%s\n", ColorBlue, ColorNC)
+	if _, err := runCommand("systemctl", "stop", ServiceName); err != nil {
+		fmt.Printf("%s⚠️  Ошибка остановки сервиса: %v%s\n", ColorYellow, err, ColorNC)
+	}
+
 	if err := os.Truncate(ViolationLog, 0); err == nil {
 		fmt.Printf("%s✅ Лог нарушений очищен%s\n", ColorGreen, ColorNC)
 	} else {
@@ -336,18 +364,19 @@ func clearLogs() {
 		fmt.Printf("%s❌ Ошибка очистки access лога: %v%s\n", ColorRed, err, ColorNC)
 	}
 
-	fmt.Printf("\n%sПерезапуск сервиса...%s\n", ColorBlue, ColorNC)
-	runCommand("systemctl", "restart", ServiceName)
-	fmt.Printf("%s✅ Сервис перезапущен%s\n", ColorGreen, ColorNC)
+	fmt.Printf("\n%sЗапуск сервиса...%s\n", ColorBlue, ColorNC)
+	if _, err := runCommand("systemctl", "start", ServiceName); err != nil {
+		fmt.Printf("%s❌ Ошибка запуска сервиса: %v%s\n", ColorRed, err, ColorNC)
+	} else {
+		fmt.Printf("%s✅ Сервис запущен%s\n", ColorGreen, ColorNC)
+	}
 }
 
 func showLogs(follow bool, lines int) {
-	args := []string{"-u", ServiceName, "--no-pager"}
+	args := []string{"-u", ServiceName, "--no-pager", "-n", fmt.Sprintf("%d", lines)}
 
 	if follow {
 		args = append(args, "-f")
-	} else {
-		args = append(args, "-n", fmt.Sprintf("%d", lines))
 	}
 
 	cmd := exec.Command("journalctl", args...)
@@ -355,5 +384,7 @@ func showLogs(follow bool, lines int) {
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
 
-	cmd.Run()
+	if err := cmd.Run(); err != nil {
+		fmt.Printf("%s❌ Ошибка выполнения journalctl: %v%s\n", ColorRed, err, ColorNC)
+	}
 }

@@ -98,20 +98,32 @@ ask_yes_no() {
 }
 
 GO_INSTALLED_BY_US=false
+REQUIRED_GO="1.26.0"
+
+version_ge() {
+    [ "$(printf '%s\n' "$1" "$2" | sort -V | head -n1)" = "$2" ]
+}
 
 install_go() {
-    if command -v go &>/dev/null || [ -x "/usr/local/go/bin/go" ]; then
-        if command -v go &>/dev/null; then
-            GO_VERSION=$(go version | awk '{print $3}' | sed 's/go//')
-        else
-            GO_VERSION=$(/usr/local/go/bin/go version | awk '{print $3}' | sed 's/go//')
-            export PATH=$PATH:/usr/local/go/bin
-        fi
-        print_success "Go уже установлен: $GO_VERSION"
+    local current_version=""
+
+    if command -v go &>/dev/null; then
+        current_version=$(go version | awk '{print $3}' | sed 's/go//')
+    elif [ -x "/usr/local/go/bin/go" ]; then
+        current_version=$(/usr/local/go/bin/go version | awk '{print $3}' | sed 's/go//')
+        export PATH=$PATH:/usr/local/go/bin
+    fi
+
+    if [ -n "$current_version" ] && version_ge "$current_version" "$REQUIRED_GO"; then
+        print_success "Go уже установлен: $current_version"
         return 0
     fi
 
-    print_info "Go не обнаружен. Установка Go..."
+    if [ -n "$current_version" ]; then
+        print_warning "Go $current_version установлен, но требуется >= $REQUIRED_GO. Обновление..."
+    else
+        print_info "Go не обнаружен. Установка Go..."
+    fi
 
     ARCH=$(uname -m)
     case $ARCH in
@@ -130,11 +142,10 @@ install_go() {
             ;;
     esac
 
-    GO_VERSION="1.26.0"
-    GO_TAR="go${GO_VERSION}.linux-${GO_ARCH}.tar.gz"
+    GO_TAR="go${REQUIRED_GO}.linux-${GO_ARCH}.tar.gz"
     GO_URL="https://go.dev/dl/${GO_TAR}"
 
-    print_info "Скачивание Go ${GO_VERSION} для ${GO_ARCH}..."
+    print_info "Скачивание Go ${REQUIRED_GO} для ${GO_ARCH}..."
 
     cd /tmp
     if ! wget -q --show-progress "$GO_URL"; then

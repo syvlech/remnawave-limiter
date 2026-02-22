@@ -1,18 +1,14 @@
-.PHONY: build clean install test
+.PHONY: build clean install test deploy
 
-# Версия Go
 GO_VERSION := 1.21
 
-# Имя бинарников
 LIMITER_BIN := remnawave-limiter
 CLI_BIN := limiter-cli
 
-# Пути установки
 INSTALL_PATH := /usr/local/bin
 
 all: build
 
-# Сборка обоих бинарников
 build:
 	@echo "🔨 Сборка Remnawave IP Limiter..."
 	go mod download
@@ -20,7 +16,6 @@ build:
 	go build -ldflags="-s -w" -o bin/$(CLI_BIN) ./cmd/limiter-cli
 	@echo "✅ Сборка завершена!"
 
-# Установка в систему
 install: build
 	@echo "📦 Установка бинарников..."
 	sudo cp bin/$(LIMITER_BIN) $(INSTALL_PATH)/
@@ -29,18 +24,26 @@ install: build
 	sudo chmod +x $(INSTALL_PATH)/$(CLI_BIN)
 	@echo "✅ Установка завершена!"
 
-# Очистка собранных файлов
 clean:
 	@echo "🗑️  Очистка..."
 	rm -rf bin/
 	@echo "✅ Очистка завершена!"
 
-# Тестирование
 test:
 	@echo "🧪 Запуск тестов..."
 	go test -v ./...
 
-# Проверка кода
+deploy: build
+	@echo "📦 Установка бинарников..."
+	sudo cp bin/$(LIMITER_BIN) $(INSTALL_PATH)/
+	sudo cp bin/$(CLI_BIN) $(INSTALL_PATH)/
+	sudo chmod +x $(INSTALL_PATH)/$(LIMITER_BIN)
+	sudo chmod +x $(INSTALL_PATH)/$(CLI_BIN)
+	@echo "🗑️  Очистка исходников и кэша..."
+	go clean -modcache -cache
+	rm -rf bin/
+	@echo "✅ Деплой завершён, исходники очищены!"
+
 lint:
 	@echo "🔍 Проверка кода..."
 	go vet ./...

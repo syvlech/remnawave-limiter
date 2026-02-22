@@ -316,30 +316,15 @@ mkdir -p "$INSTALL_DIR"
 print_info "Создание конфигурационного файла..."
 
 cat > "$ENV_FILE" << EOF
-# Сгенерировано: $(date)
-
-# Путь к access логу Remnanode
 REMNAWAVE_LOG_PATH=$REMNAWAVE_LOG
-
-# Путь к логу нарушений (для fail2ban)
 VIOLATION_LOG_PATH=$VIOLATION_LOG
-
-# Максимальное количество IP-адресов на один ключ
 MAX_IPS_PER_KEY=$MAX_IPS
-
-# Интервал проверки лога в секундах
 CHECK_INTERVAL=$CHECK_INTERVAL
-
-# Интервал очистки лога в секундах
 LOG_CLEAR_INTERVAL=$LOG_CLEAR_INTERVAL
-
-# Webhook уведомления
 WEBHOOK_URL=$WEBHOOK_URL
 WEBHOOK_TEMPLATE=$WEBHOOK_TEMPLATE
 WEBHOOK_HEADERS=$WEBHOOK_HEADERS
 BAN_DURATION_MINUTES=$BAN_TIME
-
-# Whitelist email (исключения из проверки лимитов)
 WHITELIST_EMAILS=$WHITELIST_EMAILS
 EOF
 
@@ -398,6 +383,11 @@ chmod +x "$INSTALL_DIR/limiter-cli"
 ln -sf "$INSTALL_DIR/limiter-cli" /usr/local/bin/limiter-cli
 
 print_success "Приложение собрано и установлено"
+echo ""
+
+print_info "Очистка кэша Go и исходных файлов..."
+go clean -modcache -cache 2>/dev/null
+print_success "Кэш Go очищен"
 echo ""
 
 cp "$ENV_FILE" "$INSTALL_DIR/"
@@ -545,3 +535,9 @@ echo ""
 
 print_success "Установка завершена!"
 echo ""
+
+if [ "$SCRIPT_DIR" != "$INSTALL_DIR" ] && [ -d "$SCRIPT_DIR" ]; then
+    print_info "Удаление исходных файлов ($SCRIPT_DIR)..."
+    rm -rf "$SCRIPT_DIR"
+    print_success "Исходные файлы удалены"
+fi

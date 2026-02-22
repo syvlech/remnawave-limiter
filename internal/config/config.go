@@ -1,12 +1,14 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/joho/godotenv"
+	"github.com/sirupsen/logrus"
 )
 
 type Config struct {
@@ -32,7 +34,9 @@ func LoadConfig(envPath string) (*Config, error) {
 		}
 	}
 
-	_ = godotenv.Load(envPath)
+	if err := godotenv.Load(envPath); err != nil {
+		logrus.WithError(err).Warn("Не удалось загрузить .env файл, используются переменные окружения")
+	}
 
 	cfg := &Config{
 		RemnawaveLogPath:   getEnv("REMNAWAVE_LOG_PATH", "/var/log/remnanode/access.log"),
@@ -51,7 +55,41 @@ func LoadConfig(envPath string) (*Config, error) {
 		cfg.WebhookURL = ""
 	}
 
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+
 	return cfg, nil
+}
+
+func (cfg *Config) Validate() error {
+	if cfg.MaxIPsPerKey <= 0 {
+		return fmt.Errorf("MAX_IPS_PER_KEY должен быть > 0, получено %d", cfg.MaxIPsPerKey)
+	}
+	if cfg.CheckInterval <= 0 {
+		return fmt.Errorf("CHECK_INTERVAL должен быть > 0, получено %d", cfg.CheckInterval)
+	}
+	if cfg.LogClearInterval <= 0 {
+		return fmt.Errorf("LOG_CLEAR_INTERVAL должен быть > 0, получено %d", cfg.LogClearInterval)
+	}
+	if cfg.BanDurationMinutes <= 0 {
+		return fmt.Errorf("BAN_DURATION_MINUTES должен быть > 0, получено %d", cfg.BanDurationMinutes)
+	}
+
+	logPaths := map[string]string{
+		"REMNAWAVE_LOG_PATH": cfg.RemnawaveLogPath,
+		"VIOLATION_LOG_PATH": cfg.ViolationLogPath,
+	}
+	for key, logPath := range logPaths {
+		dir := filepath.Dir(logPath)
+		if info, err := os.Stat(dir); err != nil {
+			return fmt.Errorf("директория для %s (%s) недоступна: %v", key, dir, err)
+		} else if !info.IsDir() {
+			return fmt.Errorf("путь %s для %s не является директорией", dir, key)
+		}
+	}
+
+	return nil
 }
 
 func getEnv(key, defaultValue string) string {
@@ -63,9 +101,16 @@ func getEnv(key, defaultValue string) string {
 
 func getEnvInt(key string, defaultValue int) int {
 	if value := os.Getenv(key); value != "" {
-		if intVal, err := strconv.Atoi(value); err == nil {
-			return intVal
+		intVal, err := strconv.Atoi(value)
+		if err != nil {
+			logrus.WithFields(logrus.Fields{
+				"key":     key,
+				"value":   value,
+				"default": defaultValue,
+			}).Warnf("Не удалось преобразовать %s в число, используется значение по умолчанию %d", key, defaultValue)
+			return defaultValue
 		}
+		return intVal
 	}
 	return defaultValue
 }

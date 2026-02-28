@@ -145,7 +145,7 @@ Webhook требует обязательной настройки шаблон�
 
 | Переменная | Описание | Пример |
 |-----------|----------|---------|
-| `%email` | Subscription ID (идентификатор подписки) | vim6g9a50a |
+| `%email` | Subscription ID (идентификатор подписки) | 1234 |
 | `%ip` | IP адрес | 1.2.3.4 |
 | `%server` | Hostname сервера | vpn-node-01 |
 | `%action` | Действие (ban/unban) | ban |
@@ -253,7 +253,7 @@ sudo systemctl restart fail2ban
 
 ```bash
 sudo nano /opt/remnawave-limiter/.env
-# Измените WHITELIST_EMAILS=email1,email2,email3
+# Измените WHITELIST_EMAILS=1,2,3,4
 sudo systemctl restart remnawave-limiter
 ```
 

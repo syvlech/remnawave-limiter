@@ -3,6 +3,7 @@ package limiter
 import (
 	"bufio"
 	"context"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
@@ -55,6 +56,11 @@ func (l *Limiter) Run() {
 	l.logger.Info("🚀 Remnawave IP Limiter запущен")
 	l.logger.Infof("📁 Файл лога Remnawave: %s", l.config.RemnawaveLogPath)
 	l.logger.Infof("📁 Файл лога нарушений: %s", l.config.ViolationLogPath)
+	if l.config.EnableLogArchive {
+		l.logger.Infof("📁 Архив access лога: %s", l.config.AccessLogArchivePath)
+	} else {
+		l.logger.Info("📁 Архивирование access лога отключено")
+	}
 	l.logger.Infof("🔢 Максимум IP на ключ: %d", l.config.MaxIPsPerKey)
 	l.logger.Infof("🔄 Интервал проверки: %dс", l.config.CheckInterval)
 	l.logger.Infof("🗑️ Очистка лога каждые: %dс", l.config.LogClearInterval)
@@ -208,6 +214,13 @@ func (l *Limiter) handleViolation(email string, activeIPs []string) {
 }
 
 func (l *Limiter) clearAccessLog() {
+	if l.config.EnableLogArchive {
+		if err := l.archiveAccessLog(); err != nil {
+			l.logger.WithError(err).Error("Ошибка архивирования лога, очистка отменена")
+			return
+		}
+	}
+
 	file, err := os.OpenFile(l.config.RemnawaveLogPath, os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		l.logger.WithError(err).Error("Ошибка при очистке лога")
@@ -218,7 +231,39 @@ func (l *Limiter) clearAccessLog() {
 	l.evictStaleViolations()
 
 	l.lastClear.Store(time.Now().Unix())
-	l.logger.Info("🗑️ Лог Remnawave очищен (truncated)")
+	if l.config.EnableLogArchive {
+		l.logger.Info("🗑️ Лог Remnawave очищен, копия сохранена в архив")
+	} else {
+		l.logger.Info("🗑️ Лог Remnawave очищен")
+	}
+}
+
+func (l *Limiter) archiveAccessLog() error {
+	src, err := os.Open(l.config.RemnawaveLogPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	defer src.Close()
+
+	info, err := src.Stat()
+	if err != nil {
+		return err
+	}
+	if info.Size() == 0 {
+		return nil
+	}
+
+	dst, err := os.OpenFile(l.config.AccessLogArchivePath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+	if err != nil {
+		return err
+	}
+	defer dst.Close()
+
+	_, err = io.Copy(dst, src)
+	return err
 }
 
 func (l *Limiter) evictStaleViolations() {

@@ -49,6 +49,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_DIR="/opt/remnawave-limiter"
 ENV_FILE="$INSTALL_DIR/.env"
 VIOLATION_LOG="/var/log/remnawave-limiter/access-limiter.log"
+ACCESS_ARCHIVE="/var/log/remnawave-limiter/access-archive.log"
 BANNED_LOG="/var/log/remnawave-limiter/banned.log"
 
 detect_os() {
@@ -290,9 +291,18 @@ BAN_TIME=$(ask_with_default "Время бана (минуты)" "10")
 
 CHECK_INTERVAL=$(ask_with_default "Интервал проверки лога (секунды)" "5")
 
-print_info "Интервал очистки лога (truncate)"
-print_info "После очистки лог начинается заново (рекомендуется 3600 секунд = 1 час)"
+print_info "Интервал очистки рабочего лога"
+print_info "Рекомендуется 3600 секунд = 1 час"
 LOG_CLEAR_INTERVAL=$(ask_with_default "Интервал очистки лога (секунды)" "3600")
+
+echo ""
+ENABLE_LOG_ARCHIVE="false"
+if ask_yes_no "Включить архивирование access лога? (сохранение копии перед очисткой + logrotate)" "n"; then
+    ENABLE_LOG_ARCHIVE="true"
+    print_success "Архивирование включено"
+else
+    print_info "Архивирование отключено, access лог будет очищаться без сохранения"
+fi
 
 echo ""
 print_info "Дополнительные параметры (webhook уведомления):"
@@ -332,6 +342,8 @@ print_info "Создание конфигурационного файла..."
 cat > "$ENV_FILE" << EOF
 REMNAWAVE_LOG_PATH=$REMNAWAVE_LOG
 VIOLATION_LOG_PATH=$VIOLATION_LOG
+ENABLE_LOG_ARCHIVE=$ENABLE_LOG_ARCHIVE
+ACCESS_LOG_ARCHIVE_PATH=$ACCESS_ARCHIVE
 MAX_IPS_PER_KEY=$MAX_IPS
 CHECK_INTERVAL=$CHECK_INTERVAL
 LOG_CLEAR_INTERVAL=$LOG_CLEAR_INTERVAL
@@ -421,6 +433,27 @@ print_info "Создание лог файлов..."
 mkdir -p "$(dirname "$VIOLATION_LOG")"
 touch "$VIOLATION_LOG"
 touch "$BANNED_LOG"
+
+if [ "$ENABLE_LOG_ARCHIVE" = "true" ]; then
+    touch "$ACCESS_ARCHIVE"
+
+    print_info "Создание конфигурации logrotate для архива access лога..."
+    cat > /etc/logrotate.d/remnawave-limiter << EOF
+${ACCESS_ARCHIVE} {
+    weekly
+    rotate 52
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}
+EOF
+    print_success "Logrotate настроен (еженедельная ротация, хранение 1 год)"
+else
+    rm -f /etc/logrotate.d/remnawave-limiter 2>/dev/null
+fi
+
 print_success "Лог файлы созданы"
 echo ""
 

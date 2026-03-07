@@ -12,16 +12,18 @@ import (
 )
 
 type Config struct {
-	RemnawaveLogPath   string
-	ViolationLogPath   string
-	MaxIPsPerKey       int
-	CheckInterval      int
-	LogClearInterval   int
-	WebhookURL         string
-	WebhookTemplate    string
-	WebhookHeaders     map[string]string
-	BanDurationMinutes int
-	WhitelistEmails    []string
+	RemnawaveLogPath     string
+	ViolationLogPath     string
+	EnableLogArchive     bool
+	AccessLogArchivePath string
+	MaxIPsPerKey         int
+	CheckInterval        int
+	LogClearInterval     int
+	WebhookURL           string
+	WebhookTemplate      string
+	WebhookHeaders       map[string]string
+	BanDurationMinutes   int
+	WhitelistEmails      []string
 }
 
 func LoadConfig(envPath string) (*Config, error) {
@@ -39,8 +41,10 @@ func LoadConfig(envPath string) (*Config, error) {
 	}
 
 	cfg := &Config{
-		RemnawaveLogPath:   getEnv("REMNAWAVE_LOG_PATH", "/var/log/remnanode/access.log"),
-		ViolationLogPath:   getEnv("VIOLATION_LOG_PATH", "/var/log/remnawave-limiter/access-limiter.log"),
+		RemnawaveLogPath:     getEnv("REMNAWAVE_LOG_PATH", "/var/log/remnanode/access.log"),
+		ViolationLogPath:     getEnv("VIOLATION_LOG_PATH", "/var/log/remnawave-limiter/access-limiter.log"),
+		EnableLogArchive:     getEnvBool("ENABLE_LOG_ARCHIVE", false),
+		AccessLogArchivePath: getEnv("ACCESS_LOG_ARCHIVE_PATH", "/var/log/remnawave-limiter/access-archive.log"),
 		MaxIPsPerKey:       getEnvInt("MAX_IPS_PER_KEY", 1),
 		CheckInterval:      getEnvInt("CHECK_INTERVAL", 5),
 		LogClearInterval:   getEnvInt("LOG_CLEAR_INTERVAL", 3600),
@@ -80,6 +84,9 @@ func (cfg *Config) Validate() error {
 		"REMNAWAVE_LOG_PATH": cfg.RemnawaveLogPath,
 		"VIOLATION_LOG_PATH": cfg.ViolationLogPath,
 	}
+	if cfg.EnableLogArchive {
+		logPaths["ACCESS_LOG_ARCHIVE_PATH"] = cfg.AccessLogArchivePath
+	}
 	for key, logPath := range logPaths {
 		dir := filepath.Dir(logPath)
 		if info, err := os.Stat(dir); err != nil {
@@ -95,6 +102,25 @@ func (cfg *Config) Validate() error {
 func getEnv(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
+	}
+	return defaultValue
+}
+
+func getEnvBool(key string, defaultValue bool) bool {
+	if value := os.Getenv(key); value != "" {
+		switch strings.ToLower(value) {
+		case "true", "1", "yes":
+			return true
+		case "false", "0", "no":
+			return false
+		default:
+			logrus.WithFields(logrus.Fields{
+				"key":     key,
+				"value":   value,
+				"default": defaultValue,
+			}).Warnf("Не удалось преобразовать %s в bool, используется значение по умолчанию %v", key, defaultValue)
+			return defaultValue
+		}
 	}
 	return defaultValue
 }

@@ -24,10 +24,11 @@ const (
 )
 
 const (
-	JailName     = "remnawave-limiter"
-	ViolationLog = "/var/log/remnawave-limiter/access-limiter.log"
-	RemnawaveLog = "/var/log/remnanode/access.log"
-	ServiceName  = "remnawave-limiter"
+	JailName        = "remnawave-limiter"
+	ViolationLog    = "/var/log/remnawave-limiter/access-limiter.log"
+	RemnawaveLog    = "/var/log/remnanode/access.log"
+	AccessArchive   = "/var/log/remnawave-limiter/access-archive.log"
+	ServiceName     = "remnawave-limiter"
 )
 
 func main() {
@@ -98,7 +99,7 @@ func printHelp() {
 	fmt.Println("  limiter-cli active                    # Активные подключения")
 	fmt.Println("  limiter-cli logs                      # Последние 50 строк логов")
 	fmt.Println("  limiter-cli logs -f                   # Следить за логами (Ctrl+C для выхода)")
-	fmt.Println("  limiter-cli clear                     # Очистить все логи")
+	fmt.Println("  limiter-cli clear                     # Очистить лог нарушений")
 	fmt.Println("  limiter-cli version                   # Показать версию")
 }
 
@@ -340,7 +341,8 @@ func showActiveConnections() {
 }
 
 func clearLogs() {
-	fmt.Printf("%s⚠️  Это удалит все логи нарушений и Remnawave access log!%s\n", ColorYellow, ColorNC)
+	fmt.Printf("%s⚠️  Это очистит лог нарушений!%s\n", ColorYellow, ColorNC)
+	fmt.Printf("%sAccess лог не затрагивается.%s\n", ColorCyan, ColorNC)
 	fmt.Print("Продолжить? (yes/no): ")
 
 	reader := bufio.NewReader(os.Stdin)
@@ -361,12 +363,6 @@ func clearLogs() {
 		fmt.Printf("%s✅ Лог нарушений очищен%s\n", ColorGreen, ColorNC)
 	} else {
 		fmt.Printf("%s❌ Ошибка очистки лога нарушений: %v%s\n", ColorRed, err, ColorNC)
-	}
-
-	if err := os.Truncate(RemnawaveLog, 0); err == nil {
-		fmt.Printf("%s✅ Access лог очищен%s\n", ColorGreen, ColorNC)
-	} else {
-		fmt.Printf("%s❌ Ошибка очистки access лога: %v%s\n", ColorRed, err, ColorNC)
 	}
 
 	fmt.Printf("\n%sЗапуск сервиса...%s\n", ColorBlue, ColorNC)

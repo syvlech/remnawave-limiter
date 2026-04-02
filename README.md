@@ -1,356 +1,260 @@
 # Remnawave Limiter
 
-**Ограничение количества одновременных IP-адресов для Remnawave**
+**Централизованный контроль устройств для Remnawave**
 
-Скрипт мониторит логи Remnawave и автоматически блокирует IP-адреса при превышении лимита одновременных подключений с одного ключа на определённой ноде. Особенно полезно, если вы замечаете, что ваши пользователи делятся VLESS ключами с другими людьми несмотря на ограничение HWID.
+Автоматический мониторинг одновременных подключений пользователей с панели Remnawave. Отслеживает IP-адреса со всех нод через API, сравнивает с лимитом устройств каждого пользователя и уведомляет администраторов через Telegram-бота с возможностью мгновенного управления.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## 📋 Содержание
+## Возможности
 
-- [Возможности](#-возможности)
-- [Как это работает](#-как-это-работает)
-- [Требования](#-требования)
-- [Установка](#-установка)
-- [Конфигурация](#%EF%B8%8F-конфигурация)
-- [Использование CLI](#-использование-cli)
-- [Архивирование логов](#-архивирование-логов)
-- [Webhook уведомления](#-webhook-уведомления)
-- [Whitelist](#%EF%B8%8F-whitelist)
-- [Troubleshooting](#-troubleshooting)
-- [FAQ](#-faq)
+**Отслеживание:**
+- Уникальные IP-адреса за настраиваемый период
+- Сравнение с индивидуальным лимитом устройств из панели (`hwidDeviceLimit`)
+- Превышения с учётом погрешности (tolerance)
+- Агрегация IP со всех нод — полная картина подключений
 
-## ✨ Возможности
+**Уведомления администраторов:**
+- Лимит и количество обнаруженных IP
+- Список всех IP-адресов с указанием ноды
+- Ссылка на профиль пользователя
+- Отправка в чат, канал, группу или определённый тред
+- Inline-кнопки для мгновенных действий
 
-- ✅ **Fail2ban интеграция** — проверенная система банов с автоматическим разбаном
-- ✅ **Толерантность к переключению сети** — не банит при смене LTE↔Wi-Fi или переключении вышек
-- ✅ **CLI управление** — удобные команды для мониторинга и управления
-- ✅ **Webhook уведомления** — настраиваемый payload и заголовки для авторизации
-- ✅ **Whitelist** — исключение определённых подписок из проверки лимитов
-- ✅ **Архивирование логов** — опциональное сохранение access логов перед очисткой + logrotate (хранение до 1 года)
+**Два режима работы:**
+- **Ручной** — только алерты с кнопками: сбросить подключения, отключить подписку, добавить в whitelist
+- **Автоматический** — автоотключение подписки на заданное время или перманентно, с автовосстановлением по таймеру
 
-## 🔍 Как это работает
+**Гибкие настройки:**
+- Погрешность сверх лимита (tolerance)
+- Кулдаун между алертами
+- Интервал проверки и окно активности IP
+- Кэширование данных пользователей
+- Выбор часового пояса
 
-### Основная логика
+## Архитектура
 
-1. **Мониторинг логов** — читает access лог Remnawave каждые N секунд (по умолчанию 5)
-2. **Сбор уникальных IP** — для каждой подписки собирает список уникальных IP-адресов
-3. **Проверка одновременности** — IP считается активным, если был замечен < 60 секунд назад
-4. **Детекция нарушений** — если одновременно активных IP > лимита → логирует нарушение
-5. **Fail2ban обработка** — после 3 нарушений в течение 5 минут → блокировка IP
-6. **Webhook** — при бане/разбане отправляет уведомление (если настроен)
-
-### Защита от ложных срабатываний
-
-- **Дедупликация** — одно нарушение IP+email не логируется чаще раза в 60 секунд
-- **Fail2ban tolerance** — нужно 3 нарушения за 5 минут для бана
-- **Grace period** — 60 секунд на завершение переключения сети
-- **Порядок бана** — банятся самые новые IP, самые ранние сохраняются
-- **Фильтрация localhost** — `127.0.0.1` и `::1` игнорируются
-
-## 📦 Требования
-
-- **ОС**: Ubuntu 20.04+, Debian 10+, CentOS 7+, Fedora, Arch, Alpine
-- **Go**: 1.26+ (устанавливается автоматически)
-- **Fail2ban**: устанавливается автоматически
-- **Remnanode**: нода с включённым access логом
-- **Root доступ**: для установки systemd сервисов
-
-## 🚀 Установка
-
-### Автоматическая установка (рекомендуется)
-
-```bash
-git clone https://github.com/syvlech/remnawave-limiter.git && cd remnawave-limiter && sudo bash install.sh
+```
+┌─────────────┐     ┌──────────────────┐     ┌───────────────┐
+│  Remnawave  │◄────│  remnawave-      │────►│   Telegram    │
+│  Panel API  │     │  limiter         │     │   Bot API     │
+└─────────────┘     │  (Go binary)     │     └───────────────┘
+                    │  ┌────────────┐  │
+                    │  │   Redis    │  │
+                    │  └────────────┘  │
+                    └──────────────────┘
 ```
 
-### Параметры при установке
+- **Один инстанс** — устанавливается рядом с панелью или на любом сервере
+- **Не требует установки на ноды** — всё через API панели
+- **Docker Compose** — сервис + Redis в одном файле
 
-Установщик запросит следующие параметры:
+### Как это работает
+
+1. Получает список активных нод через API (`GET /api/nodes`)
+2. Для каждой ноды запрашивает IP пользователей (параллельно)
+3. Агрегирует IP по каждому пользователю со всех нод
+4. Фильтрует по времени последней активности (`lastSeen`)
+5. Сравнивает количество активных IP с лимитом + погрешность
+6. При превышении — реагирует в зависимости от режима (алерт или автоблокировка)
+
+## Требования
+
+- Docker и Docker Compose
+- Remnawave панель с API-токеном
+- Telegram-бот (создать через [@BotFather](https://t.me/BotFather))
+
+## Установка
+
+### 1. Склонировать репозиторий
+
+```bash
+git clone https://github.com/syvlech/remnawave-limiter.git
+cd remnawave-limiter
+```
+
+### 2. Создать конфигурацию
+
+```bash
+cp .env.example .env
+nano .env
+```
+
+Заполнить обязательные параметры:
+
+```bash
+REMNAWAVE_API_URL=https://panel.example.com
+REMNAWAVE_API_TOKEN=your-api-token-here
+TELEGRAM_BOT_TOKEN=123456:ABC-DEF
+TELEGRAM_CHAT_ID=-1001234567890
+TELEGRAM_ADMIN_IDS=123456789
+```
+
+### 3. Запустить
+
+```bash
+docker compose up -d
+```
+
+### Проверка
+
+```bash
+docker compose logs -f limiter
+```
+
+### Обновление
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+## Конфигурация
+
+Все настройки через `.env` файл или переменные окружения.
+
+### API подключение
+
+| Параметр | Обязательный | Описание |
+|----------|:---:|----------|
+| `REMNAWAVE_API_URL` | да | Адрес панели Remnawave |
+| `REMNAWAVE_API_TOKEN` | да | API-токен (генерируется в панели) |
+
+### Мониторинг
 
 | Параметр | По умолчанию | Описание |
-|----------|--------------|----------|
-| Путь к логу Remnanode | `/var/log/remnanode/access.log` | Access лог Remnanode |
-| Максимум IP на ключ | `1` | Лимит одновременных IP |
-| Время бана (минуты) | `10` | Длительность блокировки |
-| Интервал проверки (сек) | `5` | Частота мониторинга логов |
-| Интервал очистки лога (сек) | `3600` | Частота truncate рабочего лога |
-| Архивирование access лога | `нет` | Сохранение копии лога перед очисткой + logrotate |
-| Webhook URL | `none` | URL для уведомлений (опционально) |
-| Webhook Template | пусто | Шаблон тела запроса (обязателен если указан URL) |
-| Webhook Headers | пусто | Заголовки HTTP (опционально) |
-| Whitelist emails | `none` | Подписки для исключения из проверки |
+|----------|:---:|----------|
+| `CHECK_INTERVAL` | `30` | Интервал проверки (секунды) |
+| `ACTIVE_IP_WINDOW` | `300` | IP считается активным, если `lastSeen` < этого значения (секунды) |
+| `TOLERANCE` | `0` | Допустимое превышение лимита. Если лимит 3 и tolerance 1, реакция при 5+ IP |
+| `COOLDOWN` | `300` | Кулдаун между алертами на одного пользователя (секунды) |
+| `USER_CACHE_TTL` | `600` | Время жизни кэша данных пользователя (секунды) |
+| `DEFAULT_DEVICE_LIMIT` | `0` | Лимит по умолчанию, если у пользователя не задан `hwidDeviceLimit`. 0 = не ограничивать |
 
-### Проверка установки
+### Режим реакции
 
-```bash
-systemctl status remnawave-limiter
-systemctl status fail2ban
-limiter-cli status
-limiter-cli version
+| Параметр | По умолчанию | Описание |
+|----------|:---:|----------|
+| `ACTION_MODE` | `manual` | `manual` — алерт с кнопками, `auto` — автоотключение подписки |
+| `AUTO_DISABLE_DURATION` | `0` | Длительность отключения подписки в минутах. 0 = перманентно. Только для `auto` |
+
+### Telegram
+
+| Параметр | Обязательный | Описание |
+|----------|:---:|----------|
+| `TELEGRAM_BOT_TOKEN` | да | Токен бота от @BotFather |
+| `TELEGRAM_CHAT_ID` | да | ID чата/канала/группы для алертов |
+| `TELEGRAM_THREAD_ID` | нет | ID треда/топика в супергруппе |
+| `TELEGRAM_ADMIN_IDS` | да | ID админов через запятую (только они могут нажимать кнопки) |
+
+### Прочее
+
+| Параметр | По умолчанию | Описание |
+|----------|:---:|----------|
+| `WHITELIST_USER_IDS` | — | User ID для исключения из проверки (через запятую) |
+| `REDIS_URL` | `redis://redis:6379` | Адрес Redis |
+| `TIMEZONE` | `UTC` | Часовой пояс для timestamps в алертах (например `Europe/Moscow`) |
+
+## Логика лимитов
+
+| `hwidDeviceLimit` | Поведение |
+|:-:|----------|
+| `> 0` | Используется как лимит устройств |
+| `null` | Используется `DEFAULT_DEVICE_LIMIT` из конфига |
+| `0` | Без ограничений — пользователь пропускается |
+
+## Telegram-бот
+
+### Ручной режим (`ACTION_MODE=manual`)
+
+При превышении лимита бот отправляет алерт с тремя кнопками:
+
+```
+⚠️ Превышение лимита устройств
+
+👤 Пользователь: username123
+🔑 Подписка: abc123@example.vpn
+📊 Лимит: 3 | Обнаружено: 5 IP
+🕐 2025-11-29 04:15:30 (Europe/Moscow)
+
+📍 IP-адреса:
+  • 178.66.157.246 (нода: yandex-1)
+  • 90.188.59.122 (нода: yandex-1)
+  • 46.250.75.216 (нода: germany-2)
+
+🔗 Профиль
+
+[🔄 Сбросить подключения] [🔒 Отключить подписку]
+[🔇 Игнорировать]
 ```
 
-## ⚙️ Конфигурация
+| Кнопка | Действие |
+|--------|----------|
+| Сбросить подключения | Сброс активных подключений пользователя через API |
+| Отключить подписку | Деактивация подписки через API |
+| Игнорировать | Добавление в whitelist (больше не алертить) |
 
-### Файл конфигурации
+### Автоматический режим (`ACTION_MODE=auto`)
 
-Файл: `/opt/remnawave-limiter/.env`
+Подписка отключается автоматически, бот отправляет информационный алерт с кнопкой "Включить подписку".
 
-```bash
-# Путь к логу Remnawave
-REMNAWAVE_LOG_PATH=/var/log/remnanode/access.log
+Если `AUTO_DISABLE_DURATION > 0` — подписка автоматически восстанавливается по таймеру.
 
-# Путь к логу нарушений (для fail2ban)
-VIOLATION_LOG_PATH=/var/log/remnawave-limiter/access-limiter.log
+## Remnawave API
 
-# Архивирование access лога (true/false)
-ENABLE_LOG_ARCHIVE=false
+Проект использует следующие эндпоинты:
 
-# Путь к архиву access лога (используется при ENABLE_LOG_ARCHIVE=true)
-ACCESS_LOG_ARCHIVE_PATH=/var/log/remnawave-limiter/access-archive.log
+| Эндпоинт | Назначение |
+|----------|-----------|
+| `GET /api/nodes` | Список активных нод |
+| `POST /api/ip-control/fetch-users-ips/{nodeUuid}` | IP пользователей на ноде |
+| `GET /api/ip-control/fetch-users-ips/result/{jobId}` | Результат запроса IP |
+| `GET /api/users/by-id/{id}` | Данные пользователя и лимит |
+| `POST /api/ip-control/drop-connections` | Сброс подключений |
+| `POST /api/users/{uuid}/actions/disable` | Отключение подписки |
+| `POST /api/users/{uuid}/actions/enable` | Включение подписки |
 
-# Максимальное количество IP-адресов на один ключ
-MAX_IPS_PER_KEY=1
+## Структура проекта
 
-# Интервал проверки лога в секундах
-CHECK_INTERVAL=5
-
-# Интервал очистки рабочего лога в секундах
-LOG_CLEAR_INTERVAL=3600
-
-# Webhook уведомления (template обязателен если указан URL)
-WEBHOOK_URL=https://your-domain.com/api/webhook
-WEBHOOK_TEMPLATE={"username":"%email","ip":"%ip","server":"%server","action":"%action","duration":%duration,"timestamp":"%timestamp"}
-WEBHOOK_HEADERS=Authorization:Bearer your-token,Content-Type:application/json
-
-# Время бана в минутах
-BAN_DURATION_MINUTES=10
-
-# Whitelist подписок (через запятую)
-WHITELIST_EMAILS=root,admin,vomao039fa3
+```
+cmd/limiter/main.go              → Точка входа
+internal/
+├── config/config.go             → Конфигурация (.env)
+├── api/client.go                → HTTP-клиент Remnawave API
+├── api/types.go                 → Типы API
+├── monitor/monitor.go           → Основной цикл мониторинга
+├── cache/cache.go               → Redis: кэш, кулдауны, whitelist
+├── telegram/bot.go              → Telegram-бот
+├── telegram/messages.go         → Форматирование сообщений
+└── version/version.go           → Версия
 ```
 
-### Применение изменений
+## FAQ
 
-```bash
-sudo systemctl restart remnawave-limiter
-```
+### Как узнать свой Telegram Chat ID?
 
-## 🖥️ Использование CLI
+Добавьте бота [@userinfobot](https://t.me/userinfobot) и отправьте `/start`. Для группы/канала — добавьте бота в группу и используйте API или [@getidsbot](https://t.me/getidsbot).
 
-```bash
-limiter-cli status                    # Показать статус системы
-limiter-cli violations                # Последние 20 нарушений
-limiter-cli violations -n 50          # Последние 50 нарушений
-limiter-cli banned                    # Список забаненных IP
-limiter-cli unban 1.2.3.4             # Разбанить IP
-limiter-cli unban-all                 # Разбанить все IP
-limiter-cli active                    # Активные подключения
-limiter-cli logs                      # Последние 50 строк логов
-limiter-cli logs -f                   # Следить за логами (Ctrl+C для выхода)
-limiter-cli clear                     # Очистить лог нарушений
-limiter-cli version                   # Показать версию
-```
+### Что будет если API панели недоступен?
 
-## 📦 Архивирование логов
+Сервис логирует ошибку, пропускает текущий цикл проверки и пробует снова через `CHECK_INTERVAL` секунд. Запросы к API автоматически повторяются до 3 раз с exponential backoff.
 
-По умолчанию демон периодически очищает рабочий access лог (truncate). Если включено архивирование, перед каждой очисткой содержимое лога дописывается в архивный файл.
+### Можно ли использовать Redis от Remnawave?
 
-### Включение
+Можно, но не рекомендуется. Проект поднимает свой Redis в Docker Compose. Если хотите использовать существующий — укажите его адрес в `REDIS_URL`.
 
-В `.env`:
+### Как добавить пользователя в whitelist через бота?
 
-```bash
-ENABLE_LOG_ARCHIVE=true
-ACCESS_LOG_ARCHIVE_PATH=/var/log/remnawave-limiter/access-archive.log
-```
+Нажмите кнопку "Игнорировать" в алерте. Пользователь будет добавлен в whitelist в Redis и больше не будет проверяться. Whitelist сохраняется между перезапусками.
 
-### Logrotate
+### Как изменить лимит для конкретного пользователя?
 
-При установке с включённым архивированием автоматически создаётся конфигурация logrotate (`/etc/logrotate.d/remnawave-limiter`):
+Лимит берётся из поля `hwidDeviceLimit` в панели Remnawave. Измените его в настройках подписки пользователя.
 
-- **Ротация**: еженедельно
-- **Хранение**: 52 недели (1 год)
-- **Сжатие**: gzip (с отложенным сжатием)
-- **Метод**: copytruncate
-
-Ротированные файлы: `access-archive.log.1`, `access-archive.log.2.gz`, `access-archive.log.3.gz` и т.д.
-
-### Без архивирования
-
-Если `ENABLE_LOG_ARCHIVE=false` (по умолчанию), access лог просто очищается без сохранения — поведение как в предыдущих версиях.
-
-## 📡 Webhook уведомления
-
-### Настройка шаблона
-
-Webhook отправляется при бане и разбане IP. Доступные переменные:
-
-| Переменная | Описание | Пример |
-|-----------|----------|---------|
-| `%email` | ID подписки | user123 |
-| `%ip` | IP адрес | 1.2.3.4 |
-| `%server` | Hostname сервера | vpn-node-01 |
-| `%action` | Действие | ban / unban |
-| `%duration` | Длительность бана (минуты) | 10 |
-| `%timestamp` | ISO 8601 timestamp | 2025-11-29T12:00:00Z |
-
-Значения автоматически экранируются для JSON. Webhook отправляется асинхронно с 2 повторами при ошибке. События старше 60 секунд пропускаются.
-
-### Пример: Discord
-
-```bash
-WEBHOOK_URL=https://discord.com/api/webhooks/xxx
-WEBHOOK_TEMPLATE={"content":"Ban: %email from %ip on %server for %duration min"}
-WEBHOOK_HEADERS=Content-Type:application/json
-```
-
-### Пример: API с авторизацией
-
-```bash
-WEBHOOK_URL=https://api.example.com/notifications
-WEBHOOK_TEMPLATE={"user":"%email","ip":"%ip","action":"%action","timestamp":"%timestamp"}
-WEBHOOK_HEADERS=Authorization:Bearer token123,Content-Type:application/json
-```
-
-## 🛡️ Whitelist
-
-Whitelist позволяет исключить определённые подписки из проверки лимитов IP.
-
-### Настройка
-
-```bash
-# В .env файле
-WHITELIST_EMAILS=root,admin,vomao039fa3
-
-# Перезапустите сервис
-sudo systemctl restart remnawave-limiter
-```
-
-### Особенности
-
-- Подписки из whitelist полностью игнорируются при проверке лимитов
-- Разделитель — запятая
-- Чувствительны к регистру
-- Изменения применяются после перезапуска сервиса
-
-## 🔧 Troubleshooting
-
-### Сервис не запускается
-
-```bash
-systemctl status remnawave-limiter
-journalctl -u remnawave-limiter -n 50 --no-pager
-cat /opt/remnawave-limiter/.env
-```
-
-### Fail2ban не банит
-
-```bash
-systemctl status fail2ban
-fail2ban-client status remnawave-limiter
-fail2ban-regex /var/log/remnawave-limiter/access-limiter.log \
-               /etc/fail2ban/filter.d/remnawave-limiter.conf
-tail -100 /var/log/fail2ban.log | grep remnawave
-```
-
-### Нарушения не логируются
-
-```bash
-ls -la /var/log/remnanode/access.log
-tail -5 /var/log/remnanode/access.log
-journalctl -u remnawave-limiter -f
-tail -20 /var/log/remnawave-limiter/access-limiter.log
-```
-
-### Webhook не работает
-
-```bash
-journalctl -u remnawave-limiter | grep -i webhook
-cat /opt/remnawave-limiter/.env | grep WEBHOOK
-
-# Тестовая отправка
-curl -X POST https://your-domain.com/api/webhook \
-  -H 'Content-Type: application/json' \
-  -d '{"test":"message"}'
-```
-
-## ❓ FAQ
-
-### Как изменить лимит IP на ключ?
-
-```bash
-sudo nano /opt/remnawave-limiter/.env
-# Измените MAX_IPS_PER_KEY=1 на нужное значение
-sudo systemctl restart remnawave-limiter
-```
-
-### Как изменить время бана?
-
-```bash
-sudo nano /etc/fail2ban/jail.d/remnawave-limiter.conf
-# Измените bantime = 10m на нужное (m=минуты, h=часы, d=дни)
-sudo systemctl restart fail2ban
-```
-
-### Как добавить подписку в whitelist после установки?
-
-```bash
-sudo nano /opt/remnawave-limiter/.env
-# Добавьте в WHITELIST_EMAILS через запятую
-sudo systemctl restart remnawave-limiter
-```
-
-### Как включить архивирование логов после установки?
-
-```bash
-sudo nano /opt/remnawave-limiter/.env
-# Установите ENABLE_LOG_ARCHIVE=true
-
-# Создайте файл архива
-sudo touch /var/log/remnawave-limiter/access-archive.log
-
-# Добавьте logrotate конфигурацию
-sudo tee /etc/logrotate.d/remnawave-limiter << 'EOF'
-/var/log/remnawave-limiter/access-archive.log {
-    weekly
-    rotate 52
-    compress
-    delaycompress
-    missingok
-    notifempty
-    copytruncate
-}
-EOF
-
-sudo systemctl restart remnawave-limiter
-```
-
-### Как полностью удалить?
-
-```bash
-sudo systemctl stop remnawave-limiter
-sudo systemctl disable remnawave-limiter
-
-sudo rm -rf /opt/remnawave-limiter
-sudo rm /etc/systemd/system/remnawave-limiter.service
-sudo rm /etc/fail2ban/jail.d/remnawave-limiter.conf
-sudo rm /etc/fail2ban/filter.d/remnawave-limiter.conf
-sudo rm /etc/fail2ban/action.d/remnawave-limiter.conf
-sudo rm /etc/logrotate.d/remnawave-limiter
-sudo rm /usr/local/bin/limiter-cli
-
-sudo systemctl daemon-reload
-sudo systemctl restart fail2ban
-
-# Удалить логи (опционально)
-sudo rm -rf /var/log/remnawave-limiter
-```
-
-## 💬 Поддержка
+## Поддержка
 
 - **Issues**: [GitHub Issues](https://github.com/syvlech/remnawave-limiter/issues)
 
-## 📝 Лицензия
+## Лицензия
 
 MIT License — см. [LICENSE](LICENSE)

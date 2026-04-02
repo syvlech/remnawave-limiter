@@ -205,8 +205,8 @@ func TestClient_DropConnections(t *testing.T) {
 		if len(req.DropBy.UserUUIDs) != 2 {
 			t.Errorf("expected 2 userUuids, got %d", len(req.DropBy.UserUUIDs))
 		}
-		if req.TargetNodes.Target != "all" {
-			t.Errorf("expected targetNodes.target=all, got %s", req.TargetNodes.Target)
+		if req.TargetNodes.Target != "allNodes" {
+			t.Errorf("expected targetNodes.target=allNodes, got %s", req.TargetNodes.Target)
 		}
 
 		resp := DropConnectionsResponse{}

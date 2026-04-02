@@ -179,7 +179,7 @@ func (c *Client) FetchUsersIPs(ctx context.Context, nodeUUID string) ([]UserIPEn
 		case <-time.After(jobPollInterval):
 		}
 
-		data, err := c.doRequest(ctx, http.MethodGet, "/api/ip-control/fetch-users-ips/"+jobID+"/result", nil)
+		data, err := c.doRequest(ctx, http.MethodGet, "/api/ip-control/fetch-users-ips/result/"+jobID, nil)
 		if err != nil {
 			return nil, fmt.Errorf("poll job %s result: %w", jobID, err)
 		}
@@ -249,7 +249,7 @@ func (c *Client) DropConnections(ctx context.Context, userUUIDs []string) error 
 			UserUUIDs: userUUIDs,
 		},
 		TargetNodes: TargetNodes{
-			Target: "all",
+			Target: "allNodes",
 		},
 	}
 

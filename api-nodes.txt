@@ -1,0 +1,3001 @@
+{
+  "response": [
+    {
+      "uuid": "ba72f48e-5fd0-4ddd-adeb-6a98b9444dba",
+      "name": "yandex-1",
+      "address": "51.250.80.7",
+      "port": 25565,
+      "isConnected": true,
+      "isConnecting": false,
+      "isDisabled": false,
+      "lastStatusChange": "2026-04-02T00:47:00.648Z",
+      "lastStatusMessage": null,
+      "trafficResetDay": 1,
+      "consumptionMultiplier": 1,
+      "isTrafficTrackingActive": true,
+      "trafficLimitBytes": 0,
+      "trafficUsedBytes": 349937197291,
+      "notifyPercent": 0,
+      "viewPosition": 0,
+      "countryCode": "RU",
+      "tags": [],
+      "createdAt": "2025-12-11T10:12:05.408Z",
+      "updatedAt": "2026-04-02T01:09:00.138Z",
+      "configProfile": {
+        "activeConfigProfileUuid": "582d87c7-00e3-450b-943e-2f9033e1184a",
+        "activeInbounds": [
+          {
+            "uuid": "a72efa0f-6ce5-4923-8a57-65d20ac565b4",
+            "profileUuid": "582d87c7-00e3-450b-943e-2f9033e1184a",
+            "tag": "YANDEX-SERVER-2",
+            "type": "vless",
+            "network": "raw",
+            "security": "reality",
+            "port": 10444,
+            "rawInbound": {
+              "tag": "YANDEX-SERVER-2",
+              "port": 10444,
+              "listen": "127.0.0.1",
+              "protocol": "vless",
+              "settings": {
+                "clients": [],
+                "decryption": "none"
+              },
+              "streamSettings": {
+                "network": "raw",
+                "security": "reality",
+                "realitySettings": {
+                  "show": false,
+                  "xver": 0,
+                  "target": "api-maps.yandex.ru:443",
+                  "spiderX": "/",
+                  "shortIds": [
+                    ""
+                  ],
+                  "publicKey": "xmKvHED5z6xkkPyYrkt5wZJw3on2t8Af69682mwmI3s",
+                  "privateKey": "hzYrN6EgEB4B3oscLGjVS9mgji-UgUHaZG4IiqqlBl0",
+                  "fingerprint": "chrome",
+                  "serverNames": [
+                    "api-maps.yandex.ru"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "uuid": "10dbe94e-f4bf-4ff9-b66c-78e6664f27bb",
+            "profileUuid": "582d87c7-00e3-450b-943e-2f9033e1184a",
+            "tag": "YANDEX-SERVER-3",
+            "type": "vless",
+            "network": "raw",
+            "security": "reality",
+            "port": 10445,
+            "rawInbound": {
+              "tag": "YANDEX-SERVER-3",
+              "port": 10445,
+              "listen": "127.0.0.1",
+              "protocol": "vless",
+              "settings": {
+                "clients": [],
+                "decryption": "none"
+              },
+              "streamSettings": {
+                "network": "raw",
+                "security": "reality",
+                "realitySettings": {
+                  "show": false,
+                  "xver": 0,
+                  "target": "5post-gate.x5.ru:443",
+                  "spiderX": "/",
+                  "shortIds": [
+                    ""
+                  ],
+                  "publicKey": "UxeFzmA6WajaxZsw1YV33KrZ3FY0iNLeT295jiM162A",
+                  "privateKey": "d-e3MS12WzmGXacLKUGjao10Cwluvqe1lS1uvjoRD38",
+                  "fingerprint": "chrome",
+                  "serverNames": [
+                    "5post-gate.x5.ru"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "uuid": "7c5aaf1b-77cf-4f41-9202-b96c267be194",
+            "profileUuid": "582d87c7-00e3-450b-943e-2f9033e1184a",
+            "tag": "YANDEX-SERVER-4",
+            "type": "vless",
+            "network": "raw",
+            "security": "reality",
+            "port": 10446,
+            "rawInbound": {
+              "tag": "YANDEX-SERVER-4",
+              "port": 10446,
+              "listen": "127.0.0.1",
+              "protocol": "vless",
+              "settings": {
+                "clients": [],
+                "decryption": "none"
+              },
+              "streamSettings": {
+                "network": "raw",
+                "security": "reality",
+                "realitySettings": {
+                  "show": false,
+                  "xver": 0,
+                  "target": "ya-authproxy.taxi.yandex.ru:443",
+                  "spiderX": "/3.0/paymentmethods",
+                  "shortIds": [
+                    ""
+                  ],
+                  "publicKey": "5y-R0qzR2-1RinexZ-ntY4r7lxxT0Wv_nl9-gR97dj8",
+                  "privateKey": "atDjqU5iORHAfT6zFebF7jdrkyJW-RVWm13usP0M6Bg",
+                  "fingerprint": "chrome",
+                  "serverNames": [
+                    "ya-authproxy.taxi.yandex.ru"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "uuid": "863331cd-2590-4624-b725-b92846386551",
+            "profileUuid": "582d87c7-00e3-450b-943e-2f9033e1184a",
+            "tag": "YANDEX-SERVER-1",
+            "type": "vless",
+            "network": "raw",
+            "security": "reality",
+            "port": 10443,
+            "rawInbound": {
+              "tag": "YANDEX-SERVER-1",
+              "port": 10443,
+              "listen": "127.0.0.1",
+              "protocol": "vless",
+              "settings": {
+                "clients": [],
+                "decryption": "none"
+              },
+              "streamSettings": {
+                "network": "raw",
+                "security": "reality",
+                "realitySettings": {
+                  "show": false,
+                  "xver": 0,
+                  "target": "ads.x5.ru:443",
+                  "spiderX": "/",
+                  "shortIds": [
+                    ""
+                  ],
+                  "publicKey": "cBNDSfXPzdA5hb2WSudzIXNvVtcQOUecpv8PP5VXMTg",
+                  "privateKey": "encZAprNdFdBeNUSuVBf0BgTrm_zi2rk50PiqA84A3w",
+                  "fingerprint": "chrome",
+                  "serverNames": [
+                    "ads.x5.ru"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      "providerUuid": "188fcf7a-ee3a-4eba-8a2d-4de47ba5dedc",
+      "provider": {
+        "name": "Yandex Cloud",
+        "uuid": "188fcf7a-ee3a-4eba-8a2d-4de47ba5dedc",
+        "faviconLink": "https://yandex.cloud/",
+        "loginUrl": "https://console.yandex.cloud/folders/b1g3gb1ir2goad4phon8/dashboard",
+        "createdAt": "2026-01-07T23:29:10.985Z",
+        "updatedAt": "2026-01-31T02:42:19.608Z"
+      },
+      "activePluginUuid": null,
+      "xrayUptime": 296531,
+      "usersOnline": 36,
+      "system": {
+        "info": {
+          "arch": "x64",
+          "cpus": 2,
+          "cpuModel": "Intel Xeon Processor (Icelake)",
+          "memoryTotal": 2079186944,
+          "hostname": "remnanode",
+          "platform": "linux",
+          "release": "5.10.0-19-amd64",
+          "type": "Linux",
+          "version": "#1 SMP Debian 5.10.149-2 (2022-10-21)",
+          "networkInterfaces": [
+            "lo",
+            "eth0"
+          ]
+        },
+        "stats": {
+          "memoryFree": 1257136128,
+          "memoryUsed": 822050816,
+          "uptime": 298181.43,
+          "loadAvg": [
+            0.08,
+            0.11,
+            0.13
+          ],
+          "interface": {
+            "interface": "eth0",
+            "rxBytesPerSec": 290569,
+            "txBytesPerSec": 593627,
+            "rxTotal": 1185030646693,
+            "txTotal": 1168653316054
+          }
+        }
+      },
+      "versions": {
+        "xray": "26.3.27",
+        "node": "2.7.0"
+      }
+    },
+    {
+      "uuid": "9d18c946-9dde-4e8a-8084-b22c4392e3e3",
+      "name": "Helsinki-1",
+      "address": "45.144.52.186",
+      "port": 3001,
+      "isConnected": true,
+      "isConnecting": false,
+      "isDisabled": false,
+      "lastStatusChange": "2026-04-02T00:47:00.636Z",
+      "lastStatusMessage": null,
+      "trafficResetDay": 1,
+      "consumptionMultiplier": 1,
+      "isTrafficTrackingActive": true,
+      "trafficLimitBytes": 0,
+      "trafficUsedBytes": 1554051289766,
+      "notifyPercent": 0,
+      "viewPosition": 1,
+      "countryCode": "FI",
+      "tags": [],
+      "createdAt": "2025-11-27T15:45:48.073Z",
+      "updatedAt": "2026-04-02T01:09:00.115Z",
+      "configProfile": {
+        "activeConfigProfileUuid": "d4f05a0f-c95f-4592-9e7b-b65fe90ce79d",
+        "activeInbounds": [
+          {
+            "uuid": "ee836e04-ac93-460e-907f-ad67c725e775",
+            "profileUuid": "d4f05a0f-c95f-4592-9e7b-b65fe90ce79d",
+            "tag": "REALITY-SOLO-YOUTUBE",
+            "type": "vless",
+            "network": "raw",
+            "security": "reality",
+            "port": 443,
+            "rawInbound": {
+              "tag": "REALITY-SOLO-YOUTUBE",
+              "port": 443,
+              "protocol": "vless",
+              "settings": {
+                "clients": [],
+                "decryption": "none"
+              },
+              "sniffing": {
+                "enabled": true,
+                "destOverride": [
+                  "http",
+                  "tls",
+                  "quic"
+                ]
+              },
+              "streamSettings": {
+                "network": "raw",
+                "security": "reality",
+                "realitySettings": {
+                  "show": false,
+                  "xver": 0,
+                  "target": "8443",
+                  "spiderX": "/",
+                  "shortIds": [
+                    ""
+                  ],
+                  "publicKey": "notbhvoigz8vuxFRK5Uq4xwQgPqBMRSrRep7fBU3gEo",
+                  "privateKey": "zcccWMDjXS5ZbKXNRAjUe7_Asaqa8Bc4g5dhtWBJW98",
+                  "fingerprint": "ios",
+                  "serverNames": [
+                    "container.resetnet.ru",
+                    "api.resetnet.ru"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      "providerUuid": "296615dd-d8bb-4e38-bb80-7700735eb3f5",
+      "provider": {
+        "name": "H2NEXUS",
+        "uuid": "296615dd-d8bb-4e38-bb80-7700735eb3f5",
+        "faviconLink": "https://my.h2.nexus/",
+        "loginUrl": "https://my.h2.nexus/billmgr?startform=vds",
+        "createdAt": "2025-11-27T13:47:10.942Z",
+        "updatedAt": "2025-11-27T13:47:10.942Z"
+      },
+      "activePluginUuid": null,
+      "xrayUptime": 391368,
+      "usersOnline": 62,
+      "system": {
+        "info": {
+          "arch": "x64",
+          "cpus": 8,
+          "cpuModel": "AMD Ryzen 9 7950X3D 16-Core Processor",
+          "memoryTotal": 16768679936,
+          "hostname": "remnanode",
+          "platform": "linux",
+          "release": "6.8.0-106-generic",
+          "type": "Linux",
+          "version": "#106-Ubuntu SMP PREEMPT_DYNAMIC Fri Mar  6 07:58:08 UTC 2026",
+          "networkInterfaces": [
+            "lo",
+            "ens3"
+          ]
+        },
+        "stats": {
+          "memoryFree": 15564611584,
+          "memoryUsed": 1204068352,
+          "uptime": 391486.55,
+          "loadAvg": [
+            0.1,
+            0.16,
+            0.17
+          ],
+          "interface": {
+            "interface": "ens3",
+            "rxBytesPerSec": 1923313.6863136864,
+            "txBytesPerSec": 2470689.310689311,
+            "rxTotal": 8162893804953,
+            "txTotal": 8361510838485
+          }
+        }
+      },
+      "versions": {
+        "xray": "26.3.27",
+        "node": "2.7.0"
+      }
+    },
+    {
+      "uuid": "75cc76b5-9dbf-44fb-9fad-ee4f5925bef8",
+      "name": "Warsaw-1",
+      "address": "144.31.2.233",
+      "port": 3001,
+      "isConnected": true,
+      "isConnecting": false,
+      "isDisabled": false,
+      "lastStatusChange": "2026-04-02T00:47:00.615Z",
+      "lastStatusMessage": null,
+      "trafficResetDay": 1,
+      "consumptionMultiplier": 1,
+      "isTrafficTrackingActive": true,
+      "trafficLimitBytes": 0,
+      "trafficUsedBytes": 965677734550,
+      "notifyPercent": 0,
+      "viewPosition": 2,
+      "countryCode": "PL",
+      "tags": [],
+      "createdAt": "2025-11-27T15:11:21.679Z",
+      "updatedAt": "2026-04-02T01:09:00.107Z",
+      "configProfile": {
+        "activeConfigProfileUuid": "d4f05a0f-c95f-4592-9e7b-b65fe90ce79d",
+        "activeInbounds": [
+          {
+            "uuid": "ee836e04-ac93-460e-907f-ad67c725e775",
+            "profileUuid": "d4f05a0f-c95f-4592-9e7b-b65fe90ce79d",
+            "tag": "REALITY-SOLO-YOUTUBE",
+            "type": "vless",
+            "network": "raw",
+            "security": "reality",
+            "port": 443,
+            "rawInbound": {
+              "tag": "REALITY-SOLO-YOUTUBE",
+              "port": 443,
+              "protocol": "vless",
+              "settings": {
+                "clients": [],
+                "decryption": "none"
+              },
+              "sniffing": {
+                "enabled": true,
+                "destOverride": [
+                  "http",
+                  "tls",
+                  "quic"
+                ]
+              },
+              "streamSettings": {
+                "network": "raw",
+                "security": "reality",
+                "realitySettings": {
+                  "show": false,
+                  "xver": 0,
+                  "target": "8443",
+                  "spiderX": "/",
+                  "shortIds": [
+                    ""
+                  ],
+                  "publicKey": "notbhvoigz8vuxFRK5Uq4xwQgPqBMRSrRep7fBU3gEo",
+                  "privateKey": "zcccWMDjXS5ZbKXNRAjUe7_Asaqa8Bc4g5dhtWBJW98",
+                  "fingerprint": "ios",
+                  "serverNames": [
+                    "container.resetnet.ru",
+                    "api.resetnet.ru"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      "providerUuid": "296615dd-d8bb-4e38-bb80-7700735eb3f5",
+      "provider": {
+        "name": "H2NEXUS",
+        "uuid": "296615dd-d8bb-4e38-bb80-7700735eb3f5",
+        "faviconLink": "https://my.h2.nexus/",
+        "loginUrl": "https://my.h2.nexus/billmgr?startform=vds",
+        "createdAt": "2025-11-27T13:47:10.942Z",
+        "updatedAt": "2025-11-27T13:47:10.942Z"
+      },
+      "activePluginUuid": null,
+      "xrayUptime": 391368,
+      "usersOnline": 52,
+      "system": {
+        "info": {
+          "arch": "x64",
+          "cpus": 8,
+          "cpuModel": "AMD Ryzen 9 7950X3D 16-Core Processor",
+          "memoryTotal": 16768679936,
+          "hostname": "remnanode",
+          "platform": "linux",
+          "release": "6.8.0-106-generic",
+          "type": "Linux",
+          "version": "#106-Ubuntu SMP PREEMPT_DYNAMIC Fri Mar  6 07:58:08 UTC 2026",
+          "networkInterfaces": [
+            "lo",
+            "ens3"
+          ]
+        },
+        "stats": {
+          "memoryFree": 15647531008,
+          "memoryUsed": 1121148928,
+          "uptime": 1306927.42,
+          "loadAvg": [
+            0.07,
+            0.09,
+            0.06
+          ],
+          "interface": {
+            "interface": "ens3",
+            "rxBytesPerSec": 1498147.8521478523,
+            "txBytesPerSec": 1453737.262737263,
+            "rxTotal": 15804018222456,
+            "txTotal": 16239101175105
+          }
+        }
+      },
+      "versions": {
+        "xray": "26.3.27",
+        "node": "2.7.0"
+      }
+    },
+    {
+      "uuid": "3610a827-e687-480b-882e-574ca11d2ea3",
+      "name": "Latvia-1",
+      "address": "193.242.106.195",
+      "port": 3001,
+      "isConnected": true,
+      "isConnecting": false,
+      "isDisabled": false,
+      "lastStatusChange": "2026-04-02T00:47:00.648Z",
+      "lastStatusMessage": null,
+      "trafficResetDay": 1,
+      "consumptionMultiplier": 1,
+      "isTrafficTrackingActive": true,
+      "trafficLimitBytes": 0,
+      "trafficUsedBytes": 584079823785,
+      "notifyPercent": 0,
+      "viewPosition": 3,
+      "countryCode": "LV",
+      "tags": [],
+      "createdAt": "2026-02-18T16:26:58.899Z",
+      "updatedAt": "2026-04-02T01:09:00.128Z",
+      "configProfile": {
+        "activeConfigProfileUuid": "d7158511-4959-4c5a-bc20-636548b869dc",
+        "activeInbounds": [
+          {
+            "uuid": "4e66530a-3002-4aa9-8b31-e3e25de0363a",
+            "profileUuid": "d7158511-4959-4c5a-bc20-636548b869dc",
+            "tag": "REALITY-TCP-Riga",
+            "type": "vless",
+            "network": "raw",
+            "security": "reality",
+            "port": 443,
+            "rawInbound": {
+              "tag": "REALITY-TCP-Riga",
+              "port": 443,
+              "protocol": "vless",
+              "settings": {
+                "clients": [],
+                "decryption": "none"
+              },
+              "sniffing": {
+                "enabled": true,
+                "destOverride": [
+                  "http",
+                  "tls",
+                  "quic"
+                ]
+              },
+              "streamSettings": {
+                "network": "raw",
+                "security": "reality",
+                "realitySettings": {
+                  "show": false,
+                  "xver": 0,
+                  "target": "8443",
+                  "spiderX": "/",
+                  "shortIds": [
+                    ""
+                  ],
+                  "publicKey": "3iNsWLtHs2aOqYPagjxYNDAEJS9daJEIzhI83dv6ACM",
+                  "privateKey": "MPfCAkywWTwp5Tk-bGwAQW1P-K0x5vFoyvxaH4jRDW0",
+                  "fingerprint": "ios",
+                  "serverNames": [
+                    "cli.resetnet.ru"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      "providerUuid": "75253ac7-d9eb-48f6-8a1f-3bf7aefdede3",
+      "provider": {
+        "name": "Beget",
+        "uuid": "75253ac7-d9eb-48f6-8a1f-3bf7aefdede3",
+        "faviconLink": "https://beget.com",
+        "loginUrl": "https://cp.beget.com/cloud",
+        "createdAt": "2026-01-01T20:58:38.529Z",
+        "updatedAt": "2026-01-01T20:58:38.529Z"
+      },
+      "activePluginUuid": null,
+      "xrayUptime": 391367,
+      "usersOnline": 21,
+      "system": {
+        "info": {
+          "arch": "x64",
+          "cpus": 2,
+          "cpuModel": "AMD EPYC 7763 64-Core Processor",
+          "memoryTotal": 2063228928,
+          "hostname": "remnanode",
+          "platform": "linux",
+          "release": "6.8.0-106-generic",
+          "type": "Linux",
+          "version": "#106-Ubuntu SMP PREEMPT_DYNAMIC Fri Mar  6 07:58:08 UTC 2026",
+          "networkInterfaces": [
+            "lo",
+            "eth0"
+          ]
+        },
+        "stats": {
+          "memoryFree": 1240195072,
+          "memoryUsed": 823033856,
+          "uptime": 1307025.32,
+          "loadAvg": [
+            0.07,
+            0.06,
+            0.07
+          ],
+          "interface": {
+            "interface": "eth0",
+            "rxBytesPerSec": 1761576.4235764237,
+            "txBytesPerSec": 1743314.6853146856,
+            "rxTotal": 11187952077232,
+            "txTotal": 11475564653212
+          }
+        }
+      },
+      "versions": {
+        "xray": "26.3.27",
+        "node": "2.7.0"
+      }
+    },
+    {
+      "uuid": "491b4c95-bdb3-4fc1-a584-ec2008408e2f",
+      "name": "Riga-2",
+      "address": "45.145.5.237",
+      "port": 3001,
+      "isConnected": true,
+      "isConnecting": false,
+      "isDisabled": false,
+      "lastStatusChange": "2026-04-02T00:47:00.652Z",
+      "lastStatusMessage": null,
+      "trafficResetDay": 1,
+      "consumptionMultiplier": 1,
+      "isTrafficTrackingActive": true,
+      "trafficLimitBytes": 0,
+      "trafficUsedBytes": 5244415121,
+      "notifyPercent": 0,
+      "viewPosition": 4,
+      "countryCode": "LV",
+      "tags": [],
+      "createdAt": "2026-04-01T23:59:48.027Z",
+      "updatedAt": "2026-04-02T01:09:00.127Z",
+      "configProfile": {
+        "activeConfigProfileUuid": "d7158511-4959-4c5a-bc20-636548b869dc",
+        "activeInbounds": [
+          {
+            "uuid": "4e66530a-3002-4aa9-8b31-e3e25de0363a",
+            "profileUuid": "d7158511-4959-4c5a-bc20-636548b869dc",
+            "tag": "REALITY-TCP-Riga",
+            "type": "vless",
+            "network": "raw",
+            "security": "reality",
+            "port": 443,
+            "rawInbound": {
+              "tag": "REALITY-TCP-Riga",
+              "port": 443,
+              "protocol": "vless",
+              "settings": {
+                "clients": [],
+                "decryption": "none"
+              },
+              "sniffing": {
+                "enabled": true,
+                "destOverride": [
+                  "http",
+                  "tls",
+                  "quic"
+                ]
+              },
+              "streamSettings": {
+                "network": "raw",
+                "security": "reality",
+                "realitySettings": {
+                  "show": false,
+                  "xver": 0,
+                  "target": "8443",
+                  "spiderX": "/",
+                  "shortIds": [
+                    ""
+                  ],
+                  "publicKey": "3iNsWLtHs2aOqYPagjxYNDAEJS9daJEIzhI83dv6ACM",
+                  "privateKey": "MPfCAkywWTwp5Tk-bGwAQW1P-K0x5vFoyvxaH4jRDW0",
+                  "fingerprint": "ios",
+                  "serverNames": [
+                    "cli.resetnet.ru"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      "providerUuid": "75253ac7-d9eb-48f6-8a1f-3bf7aefdede3",
+      "provider": {
+        "name": "Beget",
+        "uuid": "75253ac7-d9eb-48f6-8a1f-3bf7aefdede3",
+        "faviconLink": "https://beget.com",
+        "loginUrl": "https://cp.beget.com/cloud",
+        "createdAt": "2026-01-01T20:58:38.529Z",
+        "updatedAt": "2026-01-01T20:58:38.529Z"
+      },
+      "activePluginUuid": null,
+      "xrayUptime": 3964,
+      "usersOnline": 18,
+      "system": {
+        "info": {
+          "arch": "x64",
+          "cpus": 2,
+          "cpuModel": "AMD EPYC 7763 64-Core Processor",
+          "memoryTotal": 2063228928,
+          "hostname": "remnanode",
+          "platform": "linux",
+          "release": "6.8.0-107-generic",
+          "type": "Linux",
+          "version": "#107-Ubuntu SMP PREEMPT_DYNAMIC Fri Mar 13 19:51:50 UTC 2026",
+          "networkInterfaces": [
+            "lo",
+            "eth0"
+          ]
+        },
+        "stats": {
+          "memoryFree": 1497542656,
+          "memoryUsed": 565686272,
+          "uptime": 3978.34,
+          "loadAvg": [
+            0,
+            0.04,
+            0.06
+          ],
+          "interface": {
+            "interface": "eth0",
+            "rxBytesPerSec": 49012.98701298702,
+            "txBytesPerSec": 904235.7642357644,
+            "rxTotal": 5578016809,
+            "txTotal": 5454543144
+          }
+        }
+      },
+      "versions": {
+        "xray": "26.3.27",
+        "node": "2.7.0"
+      }
+    },
+    {
+      "uuid": "e5487781-77ef-4cba-8ff0-e8d04a3f1905",
+      "name": "Moscow-1",
+      "address": "72.56.244.16",
+      "port": 3001,
+      "isConnected": true,
+      "isConnecting": false,
+      "isDisabled": false,
+      "lastStatusChange": "2026-04-02T00:47:00.895Z",
+      "lastStatusMessage": null,
+      "trafficResetDay": 1,
+      "consumptionMultiplier": 1,
+      "isTrafficTrackingActive": true,
+      "trafficLimitBytes": 0,
+      "trafficUsedBytes": 125837325455,
+      "notifyPercent": 0,
+      "viewPosition": 5,
+      "countryCode": "RU",
+      "tags": [],
+      "createdAt": "2025-11-27T14:02:55.896Z",
+      "updatedAt": "2026-04-02T01:09:00.129Z",
+      "configProfile": {
+        "activeConfigProfileUuid": "60d312fe-b4fb-49ff-9412-f2c08a1f8a48",
+        "activeInbounds": [
+          {
+            "uuid": "b9b3b305-dd65-4bb8-840d-fff981fa513d",
+            "profileUuid": "60d312fe-b4fb-49ff-9412-f2c08a1f8a48",
+            "tag": "SOLO-VLESS-REALITY",
+            "type": "vless",
+            "network": "raw",
+            "security": "reality",
+            "port": 443,
+            "rawInbound": {
+              "tag": "SOLO-VLESS-REALITY",
+              "port": 443,
+              "protocol": "vless",
+              "settings": {
+                "clients": [],
+                "decryption": "none"
+              },
+              "sniffing": {
+                "enabled": true,
+                "destOverride": [
+                  "http",
+                  "tls",
+                  "quic"
+                ]
+              },
+              "streamSettings": {
+                "network": "raw",
+                "security": "reality",
+                "realitySettings": {
+                  "show": false,
+                  "xver": 0,
+                  "target": "8443",
+                  "spiderX": "/",
+                  "shortIds": [
+                    ""
+                  ],
+                  "publicKey": "Wv7zl6se-Mk5d8VszMjsrx7Jw6x2HZaMFZI9Nln3mAo",
+                  "privateKey": "8ooJfohWnklSvUTyGftGg2Dv8tXm9Mi54zb6NwuI7WQ",
+                  "fingerprint": "ios",
+                  "serverNames": [
+                    "lk.resetnet.ru"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      "providerUuid": "be1811af-c1a4-40cb-bfb5-0accef312719",
+      "provider": {
+        "name": "TimeWeb",
+        "uuid": "be1811af-c1a4-40cb-bfb5-0accef312719",
+        "faviconLink": "https://timeweb.cloud/",
+        "loginUrl": "https://timeweb.cloud/my/projects/1191823",
+        "createdAt": "2025-11-27T13:46:02.973Z",
+        "updatedAt": "2025-11-27T13:46:02.973Z"
+      },
+      "activePluginUuid": null,
+      "xrayUptime": 38538,
+      "usersOnline": 17,
+      "system": {
+        "info": {
+          "arch": "x64",
+          "cpus": 1,
+          "cpuModel": "QEMU Virtual CPU version 8.2.0",
+          "memoryTotal": 1008197632,
+          "hostname": "remnanode",
+          "platform": "linux",
+          "release": "6.8.0-106-generic",
+          "type": "Linux",
+          "version": "#106-Ubuntu SMP PREEMPT_DYNAMIC Fri Mar  6 07:58:08 UTC 2026",
+          "networkInterfaces": [
+            "lo",
+            "eth0"
+          ]
+        },
+        "stats": {
+          "memoryFree": 388579328,
+          "memoryUsed": 619618304,
+          "uptime": 38561.7,
+          "loadAvg": [
+            0.18,
+            0.2,
+            0.27
+          ],
+          "interface": {
+            "interface": "eth0",
+            "rxBytesPerSec": 3724288,
+            "txBytesPerSec": 3172589,
+            "rxTotal": 138447169357,
+            "txTotal": 140216177013
+          }
+        }
+      },
+      "versions": {
+        "xray": "26.3.27",
+        "node": "2.7.0"
+      }
+    },
+    {
+      "uuid": "708cfe1e-3957-4ee3-8a40-f16cc522aad5",
+      "name": "Eygelshoven-1",
+      "address": "85.155.98.136",
+      "port": 3001,
+      "isConnected": true,
+      "isConnecting": false,
+      "isDisabled": false,
+      "lastStatusChange": "2026-04-02T00:47:00.822Z",
+      "lastStatusMessage": null,
+      "trafficResetDay": 29,
+      "consumptionMultiplier": 1.5,
+      "isTrafficTrackingActive": true,
+      "trafficLimitBytes": 16106127360000,
+      "trafficUsedBytes": 1126976763189,
+      "notifyPercent": 0,
+      "viewPosition": 6,
+      "countryCode": "NL",
+      "tags": [],
+      "createdAt": "2026-02-28T16:03:27.590Z",
+      "updatedAt": "2026-04-02T01:09:00.095Z",
+      "configProfile": {
+        "activeConfigProfileUuid": "003b6356-0a68-49e6-98a2-b1f25f3ea0a2",
+        "activeInbounds": [
+          {
+            "uuid": "b6befcb7-0b26-4082-8f09-c54196e248bf",
+            "profileUuid": "003b6356-0a68-49e6-98a2-b1f25f3ea0a2",
+            "tag": "REALITY-TCP-Eygelshoven",
+            "type": "vless",
+            "network": "raw",
+            "security": "reality",
+            "port": 443,
+            "rawInbound": {
+              "tag": "REALITY-TCP-Eygelshoven",
+              "port": 443,
+              "protocol": "vless",
+              "settings": {
+                "clients": [],
+                "decryption": "none"
+              },
+              "sniffing": {
+                "enabled": true,
+                "destOverride": [
+                  "http",
+                  "tls",
+                  "quic"
+                ]
+              },
+              "streamSettings": {
+                "network": "raw",
+                "security": "reality",
+                "realitySettings": {
+                  "show": false,
+                  "xver": 0,
+                  "target": "8443",
+                  "spiderX": "/",
+                  "shortIds": [
+                    ""
+                  ],
+                  "publicKey": "wy9-x88Z6WgH93OvaOinlmVynCe_iUFp9ZUgzp8Jtlw",
+                  "privateKey": "fT6y6L9Zw05MXKNT8Wt5Gcck4lcju1i1r-XvwALaruU",
+                  "fingerprint": "ios",
+                  "serverNames": [
+                    "admin.resetnet.ru"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      "providerUuid": "4915394d-775d-4b8d-815f-ed7234f05ae4",
+      "provider": {
+        "name": "Weyro",
+        "uuid": "4915394d-775d-4b8d-815f-ed7234f05ae4",
+        "faviconLink": "https://weyro.net",
+        "loginUrl": "https://my.weyro.net/",
+        "createdAt": "2026-02-28T16:11:01.034Z",
+        "updatedAt": "2026-02-28T16:11:01.033Z"
+      },
+      "activePluginUuid": null,
+      "xrayUptime": 390639,
+      "usersOnline": 23,
+      "system": {
+        "info": {
+          "arch": "x64",
+          "cpus": 2,
+          "cpuModel": "AMD Ryzen 9 9950X 16-Core Processor",
+          "memoryTotal": 6213758976,
+          "hostname": "remnanode",
+          "platform": "linux",
+          "release": "6.8.0-106-generic",
+          "type": "Linux",
+          "version": "#106-Ubuntu SMP PREEMPT_DYNAMIC Fri Mar  6 07:58:08 UTC 2026",
+          "networkInterfaces": [
+            "lo",
+            "eth0"
+          ]
+        },
+        "stats": {
+          "memoryFree": 5428994048,
+          "memoryUsed": 784764928,
+          "uptime": 391654.43,
+          "loadAvg": [
+            0.13,
+            0.1,
+            0.13
+          ],
+          "interface": {
+            "interface": "eth0",
+            "rxBytesPerSec": 916136.8631368632,
+            "txBytesPerSec": 922725.2747252749,
+            "rxTotal": 1392318188383,
+            "txTotal": 1430316261039
+          }
+        }
+      },
+      "versions": {
+        "xray": "26.3.27",
+        "node": "2.7.0"
+      }
+    },
+    {
+      "uuid": "6052b4ec-baae-45d2-84db-c08cf8e66b9d",
+      "name": "Eygelshoven-2",
+      "address": "85.155.98.177",
+      "port": 3001,
+      "isConnected": true,
+      "isConnecting": false,
+      "isDisabled": false,
+      "lastStatusChange": "2026-04-02T00:47:00.818Z",
+      "lastStatusMessage": null,
+      "trafficResetDay": 1,
+      "consumptionMultiplier": 1.5,
+      "isTrafficTrackingActive": true,
+      "trafficLimitBytes": 16106127360000,
+      "trafficUsedBytes": 458320270925,
+      "notifyPercent": 0,
+      "viewPosition": 7,
+      "countryCode": "NL",
+      "tags": [],
+      "createdAt": "2026-03-17T17:27:12.820Z",
+      "updatedAt": "2026-04-02T01:09:00.096Z",
+      "configProfile": {
+        "activeConfigProfileUuid": "003b6356-0a68-49e6-98a2-b1f25f3ea0a2",
+        "activeInbounds": [
+          {
+            "uuid": "b6befcb7-0b26-4082-8f09-c54196e248bf",
+            "profileUuid": "003b6356-0a68-49e6-98a2-b1f25f3ea0a2",
+            "tag": "REALITY-TCP-Eygelshoven",
+            "type": "vless",
+            "network": "raw",
+            "security": "reality",
+            "port": 443,
+            "rawInbound": {
+              "tag": "REALITY-TCP-Eygelshoven",
+              "port": 443,
+              "protocol": "vless",
+              "settings": {
+                "clients": [],
+                "decryption": "none"
+              },
+              "sniffing": {
+                "enabled": true,
+                "destOverride": [
+                  "http",
+                  "tls",
+                  "quic"
+                ]
+              },
+              "streamSettings": {
+                "network": "raw",
+                "security": "reality",
+                "realitySettings": {
+                  "show": false,
+                  "xver": 0,
+                  "target": "8443",
+                  "spiderX": "/",
+                  "shortIds": [
+                    ""
+                  ],
+                  "publicKey": "wy9-x88Z6WgH93OvaOinlmVynCe_iUFp9ZUgzp8Jtlw",
+                  "privateKey": "fT6y6L9Zw05MXKNT8Wt5Gcck4lcju1i1r-XvwALaruU",
+                  "fingerprint": "ios",
+                  "serverNames": [
+                    "admin.resetnet.ru"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      "providerUuid": "4915394d-775d-4b8d-815f-ed7234f05ae4",
+      "provider": {
+        "name": "Weyro",
+        "uuid": "4915394d-775d-4b8d-815f-ed7234f05ae4",
+        "faviconLink": "https://weyro.net",
+        "loginUrl": "https://my.weyro.net/",
+        "createdAt": "2026-02-28T16:11:01.034Z",
+        "updatedAt": "2026-02-28T16:11:01.033Z"
+      },
+      "activePluginUuid": null,
+      "xrayUptime": 390638,
+      "usersOnline": 29,
+      "system": {
+        "info": {
+          "arch": "x64",
+          "cpus": 2,
+          "cpuModel": "AMD EPYC 7763 64-Core Processor",
+          "memoryTotal": 6213758976,
+          "hostname": "remnanode",
+          "platform": "linux",
+          "release": "6.8.0-106-generic",
+          "type": "Linux",
+          "version": "#106-Ubuntu SMP PREEMPT_DYNAMIC Fri Mar  6 07:58:08 UTC 2026",
+          "networkInterfaces": [
+            "lo",
+            "eth0"
+          ]
+        },
+        "stats": {
+          "memoryFree": 5370122240,
+          "memoryUsed": 843636736,
+          "uptime": 1041058.41,
+          "loadAvg": [
+            1.86,
+            1.1,
+            0.55
+          ],
+          "interface": {
+            "interface": "eth0",
+            "rxBytesPerSec": 10670204.795204796,
+            "txBytesPerSec": 10425511.48851149,
+            "rxTotal": 3266531005142,
+            "txTotal": 3355257763152
+          }
+        }
+      },
+      "versions": {
+        "xray": "26.3.27",
+        "node": "2.7.0"
+      }
+    },
+    {
+      "uuid": "aea53455-88dd-4d55-81b1-7f4a42c00ac5",
+      "name": "Nuremberg-1",
+      "address": "159.195.41.198",
+      "port": 3001,
+      "isConnected": true,
+      "isConnecting": false,
+      "isDisabled": false,
+      "lastStatusChange": "2026-04-02T00:47:00.832Z",
+      "lastStatusMessage": null,
+      "trafficResetDay": 1,
+      "consumptionMultiplier": 2,
+      "isTrafficTrackingActive": true,
+      "trafficLimitBytes": 0,
+      "trafficUsedBytes": 456000400251,
+      "notifyPercent": 95,
+      "viewPosition": 8,
+      "countryCode": "DE",
+      "tags": [],
+      "createdAt": "2025-12-02T21:22:23.159Z",
+      "updatedAt": "2026-04-02T01:09:00.096Z",
+      "configProfile": {
+        "activeConfigProfileUuid": "25769cd4-baa9-4308-8eee-cf83bc2d3b0d",
+        "activeInbounds": [
+          {
+            "uuid": "fecb1817-9ca9-4046-b28d-20e00d251449",
+            "profileUuid": "25769cd4-baa9-4308-8eee-cf83bc2d3b0d",
+            "tag": "VLESS-TCP-Nuremberg",
+            "type": "vless",
+            "network": "raw",
+            "security": "reality",
+            "port": 443,
+            "rawInbound": {
+              "tag": "VLESS-TCP-Nuremberg",
+              "port": 443,
+              "protocol": "vless",
+              "settings": {
+                "clients": [],
+                "decryption": "none"
+              },
+              "sniffing": {
+                "enabled": true,
+                "destOverride": [
+                  "http",
+                  "tls",
+                  "quic"
+                ]
+              },
+              "streamSettings": {
+                "network": "raw",
+                "security": "reality",
+                "realitySettings": {
+                  "show": false,
+                  "xver": 0,
+                  "target": "8443",
+                  "spiderX": "/",
+                  "shortIds": [
+                    ""
+                  ],
+                  "publicKey": "5dWsUqnx6er0h1NSEFou4CqfxeaSUonnjY9hJF9pqD0",
+                  "privateKey": "LeRYaGWrIUw4lOYydeoAPvvrLhjeODX-HREPD35drpo",
+                  "fingerprint": "ios",
+                  "serverNames": [
+                    "dns.resetnet.ru"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "uuid": "6b4a7d1a-70ce-47e9-922c-5950d27722d2",
+            "profileUuid": "25769cd4-baa9-4308-8eee-cf83bc2d3b0d",
+            "tag": "VLESS-XHTTP-Nuremberg",
+            "type": "vless",
+            "network": "xhttp",
+            "security": "reality",
+            "port": 7443,
+            "rawInbound": {
+              "tag": "VLESS-XHTTP-Nuremberg",
+              "port": 7443,
+              "protocol": "vless",
+              "settings": {
+                "clients": [],
+                "decryption": "none"
+              },
+              "sniffing": {
+                "enabled": false,
+                "destOverride": [
+                  "http",
+                  "tls",
+                  "quic"
+                ]
+              },
+              "streamSettings": {
+                "network": "xhttp",
+                "sockopt": {
+                  "tcpNoDelay": true,
+                  "tcpFastOpen": true
+                },
+                "security": "reality",
+                "xhttpSettings": {
+                  "host": "dns.resetnet.ru",
+                  "mode": "auto",
+                  "path": "/api/v1/files",
+                  "headers": {},
+                  "noSSEHeader": false,
+                  "xPaddingBytes": "100-1400"
+                },
+                "realitySettings": {
+                  "show": false,
+                  "xver": 0,
+                  "target": "8443",
+                  "spiderX": "/",
+                  "shortIds": [
+                    ""
+                  ],
+                  "publicKey": "21l3Z1Vbvrnedbp3ZzYRm26jzRT4PQJUYjtwf6s3HhE",
+                  "privateKey": "8opPjYsDlPD3CMqaJZuq3IYcWsZom2LpF29fdrhd5wc",
+                  "fingerprint": "randomized",
+                  "serverNames": [
+                    "dns.resetnet.ru"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      "providerUuid": "bc1c2fbf-4586-4e3d-8f43-690c61cd5e02",
+      "provider": {
+        "name": "netcup",
+        "uuid": "bc1c2fbf-4586-4e3d-8f43-690c61cd5e02",
+        "faviconLink": "https://netcup.net",
+        "loginUrl": "https://www.customercontrolpanel.de/run/rechnungen.php",
+        "createdAt": "2026-01-13T17:53:30.338Z",
+        "updatedAt": "2026-01-13T17:53:30.336Z"
+      },
+      "activePluginUuid": null,
+      "xrayUptime": 391366,
+      "usersOnline": 30,
+      "system": {
+        "info": {
+          "arch": "x64",
+          "cpus": 4,
+          "cpuModel": "AMD EPYC 9645 96-Core Processor",
+          "memoryTotal": 8321191936,
+          "hostname": "remnanode",
+          "platform": "linux",
+          "release": "6.8.0-106-generic",
+          "type": "Linux",
+          "version": "#106-Ubuntu SMP PREEMPT_DYNAMIC Fri Mar  6 07:58:08 UTC 2026",
+          "networkInterfaces": [
+            "lo",
+            "eth0"
+          ]
+        },
+        "stats": {
+          "memoryFree": 5299499008,
+          "memoryUsed": 3021692928,
+          "uptime": 1306773.03,
+          "loadAvg": [
+            0.15,
+            0.14,
+            0.11
+          ],
+          "interface": {
+            "interface": "eth0",
+            "rxBytesPerSec": 321648.3516483517,
+            "txBytesPerSec": 333165.8341658342,
+            "rxTotal": 7794645261428,
+            "txTotal": 7893447319099
+          }
+        }
+      },
+      "versions": {
+        "xray": "26.3.27",
+        "node": "2.7.0"
+      }
+    },
+    {
+      "uuid": "46c0c4dc-fad9-49b8-a6a6-1a33f056ad88",
+      "name": "Nuremberg-2",
+      "address": "159.195.74.116",
+      "port": 3001,
+      "isConnected": true,
+      "isConnecting": false,
+      "isDisabled": false,
+      "lastStatusChange": "2026-04-02T00:47:00.817Z",
+      "lastStatusMessage": null,
+      "trafficResetDay": 1,
+      "consumptionMultiplier": 2,
+      "isTrafficTrackingActive": true,
+      "trafficLimitBytes": 0,
+      "trafficUsedBytes": 475857440213,
+      "notifyPercent": 0,
+      "viewPosition": 9,
+      "countryCode": "DE",
+      "tags": [],
+      "createdAt": "2026-01-30T22:03:05.257Z",
+      "updatedAt": "2026-04-02T01:09:00.090Z",
+      "configProfile": {
+        "activeConfigProfileUuid": "25769cd4-baa9-4308-8eee-cf83bc2d3b0d",
+        "activeInbounds": [
+          {
+            "uuid": "fecb1817-9ca9-4046-b28d-20e00d251449",
+            "profileUuid": "25769cd4-baa9-4308-8eee-cf83bc2d3b0d",
+            "tag": "VLESS-TCP-Nuremberg",
+            "type": "vless",
+            "network": "raw",
+            "security": "reality",
+            "port": 443,
+            "rawInbound": {
+              "tag": "VLESS-TCP-Nuremberg",
+              "port": 443,
+              "protocol": "vless",
+              "settings": {
+                "clients": [],
+                "decryption": "none"
+              },
+              "sniffing": {
+                "enabled": true,
+                "destOverride": [
+                  "http",
+                  "tls",
+                  "quic"
+                ]
+              },
+              "streamSettings": {
+                "network": "raw",
+                "security": "reality",
+                "realitySettings": {
+                  "show": false,
+                  "xver": 0,
+                  "target": "8443",
+                  "spiderX": "/",
+                  "shortIds": [
+                    ""
+                  ],
+                  "publicKey": "5dWsUqnx6er0h1NSEFou4CqfxeaSUonnjY9hJF9pqD0",
+                  "privateKey": "LeRYaGWrIUw4lOYydeoAPvvrLhjeODX-HREPD35drpo",
+                  "fingerprint": "ios",
+                  "serverNames": [
+                    "dns.resetnet.ru"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "uuid": "6b4a7d1a-70ce-47e9-922c-5950d27722d2",
+            "profileUuid": "25769cd4-baa9-4308-8eee-cf83bc2d3b0d",
+            "tag": "VLESS-XHTTP-Nuremberg",
+            "type": "vless",
+            "network": "xhttp",
+            "security": "reality",
+            "port": 7443,
+            "rawInbound": {
+              "tag": "VLESS-XHTTP-Nuremberg",
+              "port": 7443,
+              "protocol": "vless",
+              "settings": {
+                "clients": [],
+                "decryption": "none"
+              },
+              "sniffing": {
+                "enabled": false,
+                "destOverride": [
+                  "http",
+                  "tls",
+                  "quic"
+                ]
+              },
+              "streamSettings": {
+                "network": "xhttp",
+                "sockopt": {
+                  "tcpNoDelay": true,
+                  "tcpFastOpen": true
+                },
+                "security": "reality",
+                "xhttpSettings": {
+                  "host": "dns.resetnet.ru",
+                  "mode": "auto",
+                  "path": "/api/v1/files",
+                  "headers": {},
+                  "noSSEHeader": false,
+                  "xPaddingBytes": "100-1400"
+                },
+                "realitySettings": {
+                  "show": false,
+                  "xver": 0,
+                  "target": "8443",
+                  "spiderX": "/",
+                  "shortIds": [
+                    ""
+                  ],
+                  "publicKey": "21l3Z1Vbvrnedbp3ZzYRm26jzRT4PQJUYjtwf6s3HhE",
+                  "privateKey": "8opPjYsDlPD3CMqaJZuq3IYcWsZom2LpF29fdrhd5wc",
+                  "fingerprint": "randomized",
+                  "serverNames": [
+                    "dns.resetnet.ru"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      "providerUuid": "bc1c2fbf-4586-4e3d-8f43-690c61cd5e02",
+      "provider": {
+        "name": "netcup",
+        "uuid": "bc1c2fbf-4586-4e3d-8f43-690c61cd5e02",
+        "faviconLink": "https://netcup.net",
+        "loginUrl": "https://www.customercontrolpanel.de/run/rechnungen.php",
+        "createdAt": "2026-01-13T17:53:30.338Z",
+        "updatedAt": "2026-01-13T17:53:30.336Z"
+      },
+      "activePluginUuid": null,
+      "xrayUptime": 391366,
+      "usersOnline": 36,
+      "system": {
+        "info": {
+          "arch": "x64",
+          "cpus": 4,
+          "cpuModel": "AMD EPYC 9645 96-Core Processor",
+          "memoryTotal": 8321191936,
+          "hostname": "remnanode",
+          "platform": "linux",
+          "release": "6.8.0-106-generic",
+          "type": "Linux",
+          "version": "#106-Ubuntu SMP PREEMPT_DYNAMIC Fri Mar  6 07:58:08 UTC 2026",
+          "networkInterfaces": [
+            "lo",
+            "eth0"
+          ]
+        },
+        "stats": {
+          "memoryFree": 5172830208,
+          "memoryUsed": 3148361728,
+          "uptime": 1306945.02,
+          "loadAvg": [
+            0.06,
+            0.12,
+            0.11
+          ],
+          "interface": {
+            "interface": "eth0",
+            "rxBytesPerSec": 244760.47904191617,
+            "txBytesPerSec": 239565.86826347306,
+            "rxTotal": 8097245551967,
+            "txTotal": 8216705824703
+          }
+        }
+      },
+      "versions": {
+        "xray": "26.3.27",
+        "node": "2.7.0"
+      }
+    },
+    {
+      "uuid": "e3b08717-26dc-475b-873b-9fc86baf2acf",
+      "name": "Astana-1",
+      "address": "45.139.29.51",
+      "port": 3001,
+      "isConnected": true,
+      "isConnecting": false,
+      "isDisabled": false,
+      "lastStatusChange": "2026-04-02T00:47:01.224Z",
+      "lastStatusMessage": null,
+      "trafficResetDay": 1,
+      "consumptionMultiplier": 1,
+      "isTrafficTrackingActive": true,
+      "trafficLimitBytes": 0,
+      "trafficUsedBytes": 238887851215,
+      "notifyPercent": 0,
+      "viewPosition": 10,
+      "countryCode": "KZ",
+      "tags": [],
+      "createdAt": "2026-01-01T20:32:51.695Z",
+      "updatedAt": "2026-04-02T01:09:00.182Z",
+      "configProfile": {
+        "activeConfigProfileUuid": "ab81bddb-d5f3-424f-abf2-1c3739ad8d25",
+        "activeInbounds": [
+          {
+            "uuid": "db259113-1bdb-4beb-a040-1f08554c179c",
+            "profileUuid": "ab81bddb-d5f3-424f-abf2-1c3739ad8d25",
+            "tag": "VLESS-TCP-Astana",
+            "type": "vless",
+            "network": "raw",
+            "security": "reality",
+            "port": 443,
+            "rawInbound": {
+              "tag": "VLESS-TCP-Astana",
+              "port": 443,
+              "protocol": "vless",
+              "settings": {
+                "clients": [],
+                "decryption": "none"
+              },
+              "sniffing": {
+                "enabled": true,
+                "destOverride": [
+                  "http",
+                  "tls",
+                  "quic"
+                ]
+              },
+              "streamSettings": {
+                "network": "raw",
+                "security": "reality",
+                "realitySettings": {
+                  "show": false,
+                  "xver": 0,
+                  "target": "8443",
+                  "spiderX": "/",
+                  "shortIds": [
+                    ""
+                  ],
+                  "publicKey": "KMi7e2MooXUyCbDclp0IYLRC1wDK-hCBuaDf0QR3K0o",
+                  "privateKey": "P-D2ONc93dAqLRU53iH_JFhoq8K6rjSuDQbU1GKwo9o",
+                  "fingerprint": "ios",
+                  "serverNames": [
+                    "go.resetnet.ru"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      "providerUuid": "75253ac7-d9eb-48f6-8a1f-3bf7aefdede3",
+      "provider": {
+        "name": "Beget",
+        "uuid": "75253ac7-d9eb-48f6-8a1f-3bf7aefdede3",
+        "faviconLink": "https://beget.com",
+        "loginUrl": "https://cp.beget.com/cloud",
+        "createdAt": "2026-01-01T20:58:38.529Z",
+        "updatedAt": "2026-01-01T20:58:38.529Z"
+      },
+      "activePluginUuid": null,
+      "xrayUptime": 391364,
+      "usersOnline": 23,
+      "system": {
+        "info": {
+          "arch": "x64",
+          "cpus": 2,
+          "cpuModel": "Intel(R) Xeon(R) CPU E5-2699 v4 @ 2.20GHz",
+          "memoryTotal": 2063233024,
+          "hostname": "remnanode",
+          "platform": "linux",
+          "release": "6.8.0-106-generic",
+          "type": "Linux",
+          "version": "#106-Ubuntu SMP PREEMPT_DYNAMIC Fri Mar  6 07:58:08 UTC 2026",
+          "networkInterfaces": [
+            "lo",
+            "eth0"
+          ]
+        },
+        "stats": {
+          "memoryFree": 1380405248,
+          "memoryUsed": 682827776,
+          "uptime": 1306938.47,
+          "loadAvg": [
+            0.01,
+            0.05,
+            0.07
+          ],
+          "interface": {
+            "interface": "eth0",
+            "rxBytesPerSec": 664320,
+            "txBytesPerSec": 740510,
+            "rxTotal": 3929695998125,
+            "txTotal": 4026081019610
+          }
+        }
+      },
+      "versions": {
+        "xray": "26.3.27",
+        "node": "2.7.0"
+      }
+    },
+    {
+      "uuid": "d7c675df-616b-496a-b090-300a3b73e7c3",
+      "name": "Astana-2",
+      "address": "5.35.80.156",
+      "port": 3001,
+      "isConnected": true,
+      "isConnecting": false,
+      "isDisabled": false,
+      "lastStatusChange": "2026-04-02T00:47:01.236Z",
+      "lastStatusMessage": null,
+      "trafficResetDay": 1,
+      "consumptionMultiplier": 1,
+      "isTrafficTrackingActive": true,
+      "trafficLimitBytes": 0,
+      "trafficUsedBytes": 255124821668,
+      "notifyPercent": 0,
+      "viewPosition": 11,
+      "countryCode": "KZ",
+      "tags": [],
+      "createdAt": "2026-01-28T13:07:45.846Z",
+      "updatedAt": "2026-04-02T01:09:00.173Z",
+      "configProfile": {
+        "activeConfigProfileUuid": "ab81bddb-d5f3-424f-abf2-1c3739ad8d25",
+        "activeInbounds": [
+          {
+            "uuid": "db259113-1bdb-4beb-a040-1f08554c179c",
+            "profileUuid": "ab81bddb-d5f3-424f-abf2-1c3739ad8d25",
+            "tag": "VLESS-TCP-Astana",
+            "type": "vless",
+            "network": "raw",
+            "security": "reality",
+            "port": 443,
+            "rawInbound": {
+              "tag": "VLESS-TCP-Astana",
+              "port": 443,
+              "protocol": "vless",
+              "settings": {
+                "clients": [],
+                "decryption": "none"
+              },
+              "sniffing": {
+                "enabled": true,
+                "destOverride": [
+                  "http",
+                  "tls",
+                  "quic"
+                ]
+              },
+              "streamSettings": {
+                "network": "raw",
+                "security": "reality",
+                "realitySettings": {
+                  "show": false,
+                  "xver": 0,
+                  "target": "8443",
+                  "spiderX": "/",
+                  "shortIds": [
+                    ""
+                  ],
+                  "publicKey": "KMi7e2MooXUyCbDclp0IYLRC1wDK-hCBuaDf0QR3K0o",
+                  "privateKey": "P-D2ONc93dAqLRU53iH_JFhoq8K6rjSuDQbU1GKwo9o",
+                  "fingerprint": "ios",
+                  "serverNames": [
+                    "go.resetnet.ru"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      "providerUuid": "75253ac7-d9eb-48f6-8a1f-3bf7aefdede3",
+      "provider": {
+        "name": "Beget",
+        "uuid": "75253ac7-d9eb-48f6-8a1f-3bf7aefdede3",
+        "faviconLink": "https://beget.com",
+        "loginUrl": "https://cp.beget.com/cloud",
+        "createdAt": "2026-01-01T20:58:38.529Z",
+        "updatedAt": "2026-01-01T20:58:38.529Z"
+      },
+      "activePluginUuid": null,
+      "xrayUptime": 391364,
+      "usersOnline": 24,
+      "system": {
+        "info": {
+          "arch": "x64",
+          "cpus": 2,
+          "cpuModel": "Intel(R) Xeon(R) CPU E5-2699 v4 @ 2.20GHz",
+          "memoryTotal": 2063233024,
+          "hostname": "remnanode",
+          "platform": "linux",
+          "release": "6.8.0-106-generic",
+          "type": "Linux",
+          "version": "#106-Ubuntu SMP PREEMPT_DYNAMIC Fri Mar  6 07:58:08 UTC 2026",
+          "networkInterfaces": [
+            "lo",
+            "eth0"
+          ]
+        },
+        "stats": {
+          "memoryFree": 1385803776,
+          "memoryUsed": 677429248,
+          "uptime": 1306945.47,
+          "loadAvg": [
+            0.14,
+            0.06,
+            0.01
+          ],
+          "interface": {
+            "interface": "eth0",
+            "rxBytesPerSec": 94892.21556886227,
+            "txBytesPerSec": 98965.06986027944,
+            "rxTotal": 3915567659247,
+            "txTotal": 4015022264061
+          }
+        }
+      },
+      "versions": {
+        "xray": "26.3.27",
+        "node": "2.7.0"
+      }
+    },
+    {
+      "uuid": "c036e5cd-c170-49b1-bac2-ae51da64841c",
+      "name": "Vilinus-1",
+      "address": "45.81.254.138",
+      "port": 3001,
+      "isConnected": true,
+      "isConnecting": false,
+      "isDisabled": false,
+      "lastStatusChange": "2026-04-02T00:47:01.015Z",
+      "lastStatusMessage": null,
+      "trafficResetDay": 1,
+      "consumptionMultiplier": 1,
+      "isTrafficTrackingActive": true,
+      "trafficLimitBytes": 0,
+      "trafficUsedBytes": 301526676131,
+      "notifyPercent": 0,
+      "viewPosition": 12,
+      "countryCode": "LT",
+      "tags": [],
+      "createdAt": "2026-02-21T16:54:01.588Z",
+      "updatedAt": "2026-04-02T01:09:00.107Z",
+      "configProfile": {
+        "activeConfigProfileUuid": "04015d16-de45-4d92-aa59-3bd2b5b39346",
+        "activeInbounds": [
+          {
+            "uuid": "0dacd800-c3ac-4f50-935d-82e5d0b6499b",
+            "profileUuid": "04015d16-de45-4d92-aa59-3bd2b5b39346",
+            "tag": "REALITY-TCP-Vilnius",
+            "type": "vless",
+            "network": "raw",
+            "security": "reality",
+            "port": 443,
+            "rawInbound": {
+              "tag": "REALITY-TCP-Vilnius",
+              "port": 443,
+              "protocol": "vless",
+              "settings": {
+                "clients": [],
+                "decryption": "none"
+              },
+              "sniffing": {
+                "enabled": true,
+                "destOverride": [
+                  "http",
+                  "tls",
+                  "quic"
+                ]
+              },
+              "streamSettings": {
+                "network": "raw",
+                "security": "reality",
+                "realitySettings": {
+                  "show": false,
+                  "xver": 0,
+                  "target": "8443",
+                  "spiderX": "/",
+                  "shortIds": [
+                    ""
+                  ],
+                  "publicKey": "5DylneySK3yQeNmzJZSQ6v5jE2ucbHblKrarHt5MnhM",
+                  "privateKey": "pvXh9xaVKq9vgAUMKyZ5Oq0mjOocyX6TNjVEHGz8m_c",
+                  "fingerprint": "ios",
+                  "serverNames": [
+                    "app.resetnet.ru"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      "providerUuid": "765f5ccf-ca84-44f7-92f9-dd9584edb4c3",
+      "provider": {
+        "name": "RedFoxCloud",
+        "uuid": "765f5ccf-ca84-44f7-92f9-dd9584edb4c3",
+        "faviconLink": "https://www.redfoxcloud.com/",
+        "loginUrl": "https://www.redfoxcloud.com/login#paslaugos",
+        "createdAt": "2025-11-27T13:48:11.467Z",
+        "updatedAt": "2025-11-27T13:48:11.466Z"
+      },
+      "activePluginUuid": null,
+      "xrayUptime": 391072,
+      "usersOnline": 24,
+      "system": {
+        "info": {
+          "arch": "x64",
+          "cpus": 1,
+          "cpuModel": "Common KVM processor",
+          "memoryTotal": 1008197632,
+          "hostname": "remnanode",
+          "platform": "linux",
+          "release": "6.8.0-106-generic",
+          "type": "Linux",
+          "version": "#106-Ubuntu SMP PREEMPT_DYNAMIC Fri Mar  6 07:58:08 UTC 2026",
+          "networkInterfaces": [
+            "lo",
+            "eth0"
+          ]
+        },
+        "stats": {
+          "memoryFree": 383053824,
+          "memoryUsed": 625143808,
+          "uptime": 1650922.63,
+          "loadAvg": [
+            0.08,
+            0.04,
+            0.06
+          ],
+          "interface": {
+            "interface": "eth0",
+            "rxBytesPerSec": 1287010.9890109892,
+            "txBytesPerSec": 1245303.6963036964,
+            "rxTotal": 4990154727812,
+            "txTotal": 5060375496554
+          }
+        }
+      },
+      "versions": {
+        "xray": "26.3.27",
+        "node": "2.7.0"
+      }
+    },
+    {
+      "uuid": "d720f3d9-b4c6-4ffb-8cbd-b9127c2d8de3",
+      "name": "Vilnius-2",
+      "address": "45.81.252.87",
+      "port": 3001,
+      "isConnected": true,
+      "isConnecting": false,
+      "isDisabled": false,
+      "lastStatusChange": "2026-04-02T00:47:01.012Z",
+      "lastStatusMessage": null,
+      "trafficResetDay": 1,
+      "consumptionMultiplier": 1,
+      "isTrafficTrackingActive": true,
+      "trafficLimitBytes": 0,
+      "trafficUsedBytes": 325594513734,
+      "notifyPercent": 0,
+      "viewPosition": 13,
+      "countryCode": "LT",
+      "tags": [],
+      "createdAt": "2026-02-21T17:04:00.709Z",
+      "updatedAt": "2026-04-02T01:09:00.112Z",
+      "configProfile": {
+        "activeConfigProfileUuid": "04015d16-de45-4d92-aa59-3bd2b5b39346",
+        "activeInbounds": [
+          {
+            "uuid": "0dacd800-c3ac-4f50-935d-82e5d0b6499b",
+            "profileUuid": "04015d16-de45-4d92-aa59-3bd2b5b39346",
+            "tag": "REALITY-TCP-Vilnius",
+            "type": "vless",
+            "network": "raw",
+            "security": "reality",
+            "port": 443,
+            "rawInbound": {
+              "tag": "REALITY-TCP-Vilnius",
+              "port": 443,
+              "protocol": "vless",
+              "settings": {
+                "clients": [],
+                "decryption": "none"
+              },
+              "sniffing": {
+                "enabled": true,
+                "destOverride": [
+                  "http",
+                  "tls",
+                  "quic"
+                ]
+              },
+              "streamSettings": {
+                "network": "raw",
+                "security": "reality",
+                "realitySettings": {
+                  "show": false,
+                  "xver": 0,
+                  "target": "8443",
+                  "spiderX": "/",
+                  "shortIds": [
+                    ""
+                  ],
+                  "publicKey": "5DylneySK3yQeNmzJZSQ6v5jE2ucbHblKrarHt5MnhM",
+                  "privateKey": "pvXh9xaVKq9vgAUMKyZ5Oq0mjOocyX6TNjVEHGz8m_c",
+                  "fingerprint": "ios",
+                  "serverNames": [
+                    "app.resetnet.ru"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      "providerUuid": "765f5ccf-ca84-44f7-92f9-dd9584edb4c3",
+      "provider": {
+        "name": "RedFoxCloud",
+        "uuid": "765f5ccf-ca84-44f7-92f9-dd9584edb4c3",
+        "faviconLink": "https://www.redfoxcloud.com/",
+        "loginUrl": "https://www.redfoxcloud.com/login#paslaugos",
+        "createdAt": "2025-11-27T13:48:11.467Z",
+        "updatedAt": "2025-11-27T13:48:11.466Z"
+      },
+      "activePluginUuid": null,
+      "xrayUptime": 391148,
+      "usersOnline": 25,
+      "system": {
+        "info": {
+          "arch": "x64",
+          "cpus": 1,
+          "cpuModel": "Common KVM processor",
+          "memoryTotal": 1008197632,
+          "hostname": "remnanode",
+          "platform": "linux",
+          "release": "6.8.0-106-generic",
+          "type": "Linux",
+          "version": "#106-Ubuntu SMP PREEMPT_DYNAMIC Fri Mar  6 07:58:08 UTC 2026",
+          "networkInterfaces": [
+            "lo",
+            "eth0"
+          ]
+        },
+        "stats": {
+          "memoryFree": 360001536,
+          "memoryUsed": 648196096,
+          "uptime": 1306993.24,
+          "loadAvg": [
+            0.01,
+            0.04,
+            0
+          ],
+          "interface": {
+            "interface": "eth0",
+            "rxBytesPerSec": 79312.375249501,
+            "txBytesPerSec": 77628.74251497006,
+            "rxTotal": 4244499573030,
+            "txTotal": 4304170068235
+          }
+        }
+      },
+      "versions": {
+        "xray": "26.3.27",
+        "node": "2.7.0"
+      }
+    },
+    {
+      "uuid": "db79968a-5ae1-4349-a721-c8bacc35b1ed",
+      "name": "Chicago-1",
+      "address": "23.158.233.162",
+      "port": 3001,
+      "isConnected": true,
+      "isConnecting": false,
+      "isDisabled": false,
+      "lastStatusChange": "2026-04-02T00:47:01.369Z",
+      "lastStatusMessage": null,
+      "trafficResetDay": 1,
+      "consumptionMultiplier": 1,
+      "isTrafficTrackingActive": true,
+      "trafficLimitBytes": 0,
+      "trafficUsedBytes": 445781598123,
+      "notifyPercent": 0,
+      "viewPosition": 14,
+      "countryCode": "US",
+      "tags": [],
+      "createdAt": "2026-03-17T17:42:30.040Z",
+      "updatedAt": "2026-04-02T01:09:00.193Z",
+      "configProfile": {
+        "activeConfigProfileUuid": "f98c9e92-2edb-46b3-834f-c3a7424d67b5",
+        "activeInbounds": [
+          {
+            "uuid": "e2efd482-cbb9-4d3d-bbb5-d0439c7c96de",
+            "profileUuid": "f98c9e92-2edb-46b3-834f-c3a7424d67b5",
+            "tag": "VLESS-CHICAGO-NODES",
+            "type": "vless",
+            "network": "raw",
+            "security": "reality",
+            "port": 443,
+            "rawInbound": {
+              "tag": "VLESS-CHICAGO-NODES",
+              "port": 443,
+              "protocol": "vless",
+              "settings": {
+                "clients": [],
+                "decryption": "none"
+              },
+              "sniffing": {
+                "enabled": true,
+                "destOverride": [
+                  "http",
+                  "tls",
+                  "quic"
+                ]
+              },
+              "streamSettings": {
+                "network": "raw",
+                "security": "reality",
+                "realitySettings": {
+                  "show": false,
+                  "xver": 0,
+                  "target": "8443",
+                  "spiderX": "/",
+                  "shortIds": [
+                    ""
+                  ],
+                  "publicKey": "i_jWeT1eYbo74MYmH8aarlwkQ7hB3BTlIiq3oqmZDlw",
+                  "privateKey": "0mlxOlaHr8MEYSvZ8WR9lvgIlR5_Ctzc68pBQhtXGNw",
+                  "fingerprint": "ios",
+                  "serverNames": [
+                    "personal.resetnet.ru"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      "providerUuid": "2758d70a-6e09-4045-810e-24d970e066e1",
+      "provider": {
+        "name": "Cloudfanatic",
+        "uuid": "2758d70a-6e09-4045-810e-24d970e066e1",
+        "faviconLink": "https://cloudfanatic.net/",
+        "loginUrl": "https://my.cloudfanatic.net/clientarea.php?action=services",
+        "createdAt": "2025-11-27T13:47:50.794Z",
+        "updatedAt": "2025-11-27T13:47:50.793Z"
+      },
+      "activePluginUuid": null,
+      "xrayUptime": 391364,
+      "usersOnline": 45,
+      "system": {
+        "info": {
+          "arch": "x64",
+          "cpus": 2,
+          "cpuModel": "Intel(R) Xeon(R) Platinum 8160 CPU @ 2.10GHz",
+          "memoryTotal": 2063228928,
+          "hostname": "remnanode",
+          "platform": "linux",
+          "release": "6.8.0-106-generic",
+          "type": "Linux",
+          "version": "#106-Ubuntu SMP PREEMPT_DYNAMIC Fri Mar  6 07:58:08 UTC 2026",
+          "networkInterfaces": [
+            "lo",
+            "eth0"
+          ]
+        },
+        "stats": {
+          "memoryFree": 1318260736,
+          "memoryUsed": 744968192,
+          "uptime": 1012826.37,
+          "loadAvg": [
+            0.35,
+            0.24,
+            0.17
+          ],
+          "interface": {
+            "interface": "eth0",
+            "rxBytesPerSec": 3141536.4635364637,
+            "txBytesPerSec": 2130905.094905095,
+            "rxTotal": 4181966055336,
+            "txTotal": 4291507683149
+          }
+        }
+      },
+      "versions": {
+        "xray": "26.3.27",
+        "node": "2.7.0"
+      }
+    },
+    {
+      "uuid": "e2a366a3-e18b-4402-8a5b-820cf5963aa9",
+      "name": "Chicago-2",
+      "address": "23.158.233.164",
+      "port": 3001,
+      "isConnected": true,
+      "isConnecting": false,
+      "isDisabled": false,
+      "lastStatusChange": "2026-04-02T00:47:01.369Z",
+      "lastStatusMessage": null,
+      "trafficResetDay": 1,
+      "consumptionMultiplier": 1,
+      "isTrafficTrackingActive": true,
+      "trafficLimitBytes": 0,
+      "trafficUsedBytes": 436621558649,
+      "notifyPercent": 0,
+      "viewPosition": 15,
+      "countryCode": "US",
+      "tags": [],
+      "createdAt": "2025-11-26T21:56:27.301Z",
+      "updatedAt": "2026-04-02T01:09:00.191Z",
+      "configProfile": {
+        "activeConfigProfileUuid": "f98c9e92-2edb-46b3-834f-c3a7424d67b5",
+        "activeInbounds": [
+          {
+            "uuid": "e2efd482-cbb9-4d3d-bbb5-d0439c7c96de",
+            "profileUuid": "f98c9e92-2edb-46b3-834f-c3a7424d67b5",
+            "tag": "VLESS-CHICAGO-NODES",
+            "type": "vless",
+            "network": "raw",
+            "security": "reality",
+            "port": 443,
+            "rawInbound": {
+              "tag": "VLESS-CHICAGO-NODES",
+              "port": 443,
+              "protocol": "vless",
+              "settings": {
+                "clients": [],
+                "decryption": "none"
+              },
+              "sniffing": {
+                "enabled": true,
+                "destOverride": [
+                  "http",
+                  "tls",
+                  "quic"
+                ]
+              },
+              "streamSettings": {
+                "network": "raw",
+                "security": "reality",
+                "realitySettings": {
+                  "show": false,
+                  "xver": 0,
+                  "target": "8443",
+                  "spiderX": "/",
+                  "shortIds": [
+                    ""
+                  ],
+                  "publicKey": "i_jWeT1eYbo74MYmH8aarlwkQ7hB3BTlIiq3oqmZDlw",
+                  "privateKey": "0mlxOlaHr8MEYSvZ8WR9lvgIlR5_Ctzc68pBQhtXGNw",
+                  "fingerprint": "ios",
+                  "serverNames": [
+                    "personal.resetnet.ru"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      "providerUuid": "2758d70a-6e09-4045-810e-24d970e066e1",
+      "provider": {
+        "name": "Cloudfanatic",
+        "uuid": "2758d70a-6e09-4045-810e-24d970e066e1",
+        "faviconLink": "https://cloudfanatic.net/",
+        "loginUrl": "https://my.cloudfanatic.net/clientarea.php?action=services",
+        "createdAt": "2025-11-27T13:47:50.794Z",
+        "updatedAt": "2025-11-27T13:47:50.793Z"
+      },
+      "activePluginUuid": null,
+      "xrayUptime": 391364,
+      "usersOnline": 37,
+      "system": {
+        "info": {
+          "arch": "x64",
+          "cpus": 2,
+          "cpuModel": "Intel(R) Xeon(R) Platinum 8160 CPU @ 2.10GHz",
+          "memoryTotal": 2063228928,
+          "hostname": "remnanode",
+          "platform": "linux",
+          "release": "6.8.0-106-generic",
+          "type": "Linux",
+          "version": "#106-Ubuntu SMP PREEMPT_DYNAMIC Fri Mar  6 07:58:08 UTC 2026",
+          "networkInterfaces": [
+            "lo",
+            "eth0"
+          ]
+        },
+        "stats": {
+          "memoryFree": 1355980800,
+          "memoryUsed": 707248128,
+          "uptime": 1012824.37,
+          "loadAvg": [
+            0.53,
+            0.34,
+            0.23
+          ],
+          "interface": {
+            "interface": "eth0",
+            "rxBytesPerSec": 5185366.633366634,
+            "txBytesPerSec": 2545000.0000000005,
+            "rxTotal": 4355344757099,
+            "txTotal": 4461815839649
+          }
+        }
+      },
+      "versions": {
+        "xray": "26.3.27",
+        "node": "2.7.0"
+      }
+    },
+    {
+      "uuid": "ec770000-1e65-4726-9cec-98e44c62d351",
+      "name": "Stockholm-1",
+      "address": "64.112.127.232",
+      "port": 3001,
+      "isConnected": true,
+      "isConnecting": false,
+      "isDisabled": false,
+      "lastStatusChange": "2026-04-02T00:47:01.193Z",
+      "lastStatusMessage": null,
+      "trafficResetDay": 28,
+      "consumptionMultiplier": 7,
+      "isTrafficTrackingActive": true,
+      "trafficLimitBytes": 16106127360000,
+      "trafficUsedBytes": 3607778355561,
+      "notifyPercent": 0,
+      "viewPosition": 16,
+      "countryCode": "SE",
+      "tags": [],
+      "createdAt": "2025-12-23T21:03:42.221Z",
+      "updatedAt": "2026-04-02T01:09:00.114Z",
+      "configProfile": {
+        "activeConfigProfileUuid": "edc70fe3-ac88-4093-8623-67e6f85dc4b5",
+        "activeInbounds": [
+          {
+            "uuid": "d0c7cb6e-8113-428f-8d65-f5f336c8d6de",
+            "profileUuid": "edc70fe3-ac88-4093-8623-67e6f85dc4b5",
+            "tag": "REALITY-TCP-Stockholm",
+            "type": "vless",
+            "network": "raw",
+            "security": "reality",
+            "port": 443,
+            "rawInbound": {
+              "tag": "REALITY-TCP-Stockholm",
+              "port": 443,
+              "protocol": "vless",
+              "settings": {
+                "clients": [],
+                "decryption": "none"
+              },
+              "sniffing": {
+                "enabled": true,
+                "destOverride": [
+                  "http",
+                  "tls",
+                  "quic"
+                ]
+              },
+              "streamSettings": {
+                "network": "raw",
+                "security": "reality",
+                "realitySettings": {
+                  "show": false,
+                  "xver": 0,
+                  "target": "8443",
+                  "spiderX": "/",
+                  "shortIds": [
+                    ""
+                  ],
+                  "publicKey": "WwJow5xFdOsSHetPvICvM2mDM_EWQWWpUWkE-sBT0m8",
+                  "privateKey": "icIKlJ6lBZxctYZ1Z68SLsCxWFn9zI0pEux7t-krrFQ",
+                  "fingerprint": "ios",
+                  "serverNames": [
+                    "cdn.resetnet.ru"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "uuid": "d8df3b08-d7fa-4bb8-8b9a-e28d4fa0f120",
+            "profileUuid": "edc70fe3-ac88-4093-8623-67e6f85dc4b5",
+            "tag": "VLESS-XHTTP-Stockholm",
+            "type": "vless",
+            "network": "xhttp",
+            "security": "reality",
+            "port": 7443,
+            "rawInbound": {
+              "tag": "VLESS-XHTTP-Stockholm",
+              "port": 7443,
+              "protocol": "vless",
+              "settings": {
+                "clients": [],
+                "decryption": "none"
+              },
+              "sniffing": {
+                "enabled": false,
+                "destOverride": [
+                  "http",
+                  "tls",
+                  "quic"
+                ]
+              },
+              "streamSettings": {
+                "network": "xhttp",
+                "sockopt": {
+                  "tcpNoDelay": true,
+                  "tcpFastOpen": true
+                },
+                "security": "reality",
+                "xhttpSettings": {
+                  "host": "cdn.resetnet.ru",
+                  "mode": "auto",
+                  "path": "/",
+                  "headers": {},
+                  "noSSEHeader": false,
+                  "xPaddingBytes": "100-1400"
+                },
+                "realitySettings": {
+                  "show": false,
+                  "xver": 0,
+                  "target": "8443",
+                  "spiderX": "/",
+                  "shortIds": [
+                    ""
+                  ],
+                  "publicKey": "BM0Mi95cprWDzfhG2c7VnvL75BFYQrUsBVZH6MFEdwA",
+                  "privateKey": "wocGHLc3J_0ZJN7qQzYVy9Po9hCl0LrnsP7jRHtqfs4",
+                  "fingerprint": "chrome",
+                  "serverNames": [
+                    "cdn.resetnet.ru"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      "providerUuid": "374a855c-8f53-42ff-975d-c20ffe4d2f30",
+      "provider": {
+        "name": "HostUp",
+        "uuid": "374a855c-8f53-42ff-975d-c20ffe4d2f30",
+        "faviconLink": "https://hostup.se",
+        "loginUrl": "https://cloud.hostup.se/",
+        "createdAt": "2026-02-28T16:10:34.758Z",
+        "updatedAt": "2026-02-28T16:10:34.757Z"
+      },
+      "activePluginUuid": null,
+      "xrayUptime": 391362,
+      "usersOnline": 54,
+      "system": {
+        "info": {
+          "arch": "x64",
+          "cpus": 2,
+          "cpuModel": "AMD EPYC-Milan Processor",
+          "memoryTotal": 8327651328,
+          "hostname": "remnanode",
+          "platform": "linux",
+          "release": "6.8.0-106-generic",
+          "type": "Linux",
+          "version": "#106-Ubuntu SMP PREEMPT_DYNAMIC Fri Mar  6 07:58:08 UTC 2026",
+          "networkInterfaces": [
+            "lo",
+            "eth0"
+          ]
+        },
+        "stats": {
+          "memoryFree": 4684664832,
+          "memoryUsed": 3642986496,
+          "uptime": 1094090.3,
+          "loadAvg": [
+            0.7,
+            0.3,
+            0.21
+          ],
+          "interface": {
+            "interface": "eth0",
+            "rxBytesPerSec": 2991865.1348651354,
+            "txBytesPerSec": 3136331.6683316687,
+            "rxTotal": 9415359503738,
+            "txTotal": 9732961547165
+          }
+        }
+      },
+      "versions": {
+        "xray": "26.3.27",
+        "node": "2.7.0"
+      }
+    },
+    {
+      "uuid": "56e750d8-9081-4c50-b619-8c009d881390",
+      "name": "Stockholm-2",
+      "address": "103.177.248.59",
+      "port": 3001,
+      "isConnected": true,
+      "isConnecting": false,
+      "isDisabled": false,
+      "lastStatusChange": "2026-04-02T00:47:01.193Z",
+      "lastStatusMessage": null,
+      "trafficResetDay": 12,
+      "consumptionMultiplier": 7,
+      "isTrafficTrackingActive": true,
+      "trafficLimitBytes": 32212254720000,
+      "trafficUsedBytes": 14184910663052,
+      "notifyPercent": 0,
+      "viewPosition": 17,
+      "countryCode": "SE",
+      "tags": [],
+      "createdAt": "2026-03-12T15:25:20.322Z",
+      "updatedAt": "2026-04-02T01:09:00.126Z",
+      "configProfile": {
+        "activeConfigProfileUuid": "edc70fe3-ac88-4093-8623-67e6f85dc4b5",
+        "activeInbounds": [
+          {
+            "uuid": "d8df3b08-d7fa-4bb8-8b9a-e28d4fa0f120",
+            "profileUuid": "edc70fe3-ac88-4093-8623-67e6f85dc4b5",
+            "tag": "VLESS-XHTTP-Stockholm",
+            "type": "vless",
+            "network": "xhttp",
+            "security": "reality",
+            "port": 7443,
+            "rawInbound": {
+              "tag": "VLESS-XHTTP-Stockholm",
+              "port": 7443,
+              "protocol": "vless",
+              "settings": {
+                "clients": [],
+                "decryption": "none"
+              },
+              "sniffing": {
+                "enabled": false,
+                "destOverride": [
+                  "http",
+                  "tls",
+                  "quic"
+                ]
+              },
+              "streamSettings": {
+                "network": "xhttp",
+                "sockopt": {
+                  "tcpNoDelay": true,
+                  "tcpFastOpen": true
+                },
+                "security": "reality",
+                "xhttpSettings": {
+                  "host": "cdn.resetnet.ru",
+                  "mode": "auto",
+                  "path": "/",
+                  "headers": {},
+                  "noSSEHeader": false,
+                  "xPaddingBytes": "100-1400"
+                },
+                "realitySettings": {
+                  "show": false,
+                  "xver": 0,
+                  "target": "8443",
+                  "spiderX": "/",
+                  "shortIds": [
+                    ""
+                  ],
+                  "publicKey": "BM0Mi95cprWDzfhG2c7VnvL75BFYQrUsBVZH6MFEdwA",
+                  "privateKey": "wocGHLc3J_0ZJN7qQzYVy9Po9hCl0LrnsP7jRHtqfs4",
+                  "fingerprint": "chrome",
+                  "serverNames": [
+                    "cdn.resetnet.ru"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "uuid": "d0c7cb6e-8113-428f-8d65-f5f336c8d6de",
+            "profileUuid": "edc70fe3-ac88-4093-8623-67e6f85dc4b5",
+            "tag": "REALITY-TCP-Stockholm",
+            "type": "vless",
+            "network": "raw",
+            "security": "reality",
+            "port": 443,
+            "rawInbound": {
+              "tag": "REALITY-TCP-Stockholm",
+              "port": 443,
+              "protocol": "vless",
+              "settings": {
+                "clients": [],
+                "decryption": "none"
+              },
+              "sniffing": {
+                "enabled": true,
+                "destOverride": [
+                  "http",
+                  "tls",
+                  "quic"
+                ]
+              },
+              "streamSettings": {
+                "network": "raw",
+                "security": "reality",
+                "realitySettings": {
+                  "show": false,
+                  "xver": 0,
+                  "target": "8443",
+                  "spiderX": "/",
+                  "shortIds": [
+                    ""
+                  ],
+                  "publicKey": "WwJow5xFdOsSHetPvICvM2mDM_EWQWWpUWkE-sBT0m8",
+                  "privateKey": "icIKlJ6lBZxctYZ1Z68SLsCxWFn9zI0pEux7t-krrFQ",
+                  "fingerprint": "ios",
+                  "serverNames": [
+                    "cdn.resetnet.ru"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      "providerUuid": "374a855c-8f53-42ff-975d-c20ffe4d2f30",
+      "provider": {
+        "name": "HostUp",
+        "uuid": "374a855c-8f53-42ff-975d-c20ffe4d2f30",
+        "faviconLink": "https://hostup.se",
+        "loginUrl": "https://cloud.hostup.se/",
+        "createdAt": "2026-02-28T16:10:34.758Z",
+        "updatedAt": "2026-02-28T16:10:34.757Z"
+      },
+      "activePluginUuid": null,
+      "xrayUptime": 391362,
+      "usersOnline": 49,
+      "system": {
+        "info": {
+          "arch": "x64",
+          "cpus": 2,
+          "cpuModel": "AMD EPYC 7R13 48-Core Processor",
+          "memoryTotal": 8327643136,
+          "hostname": "remnanode",
+          "platform": "linux",
+          "release": "6.8.0-106-generic",
+          "type": "Linux",
+          "version": "#106-Ubuntu SMP PREEMPT_DYNAMIC Fri Mar  6 07:58:08 UTC 2026",
+          "networkInterfaces": [
+            "lo",
+            "eth0"
+          ]
+        },
+        "stats": {
+          "memoryFree": 4506705920,
+          "memoryUsed": 3820937216,
+          "uptime": 1650897.37,
+          "loadAvg": [
+            0.73,
+            0.38,
+            0.27
+          ],
+          "interface": {
+            "interface": "eth0",
+            "rxBytesPerSec": 1727378.6213786216,
+            "txBytesPerSec": 2404338.661338662,
+            "rxTotal": 14297311924295,
+            "txTotal": 14667318533041
+          }
+        }
+      },
+      "versions": {
+        "xray": "26.3.27",
+        "node": "2.7.0"
+      }
+    },
+    {
+      "uuid": "9531ee21-e643-490a-a253-71471cb096b8",
+      "name": "YouTube-1",
+      "address": "31.184.253.149",
+      "port": 3001,
+      "isConnected": true,
+      "isConnecting": false,
+      "isDisabled": false,
+      "lastStatusChange": "2026-04-02T00:47:01.371Z",
+      "lastStatusMessage": null,
+      "trafficResetDay": 1,
+      "consumptionMultiplier": 1,
+      "isTrafficTrackingActive": true,
+      "trafficLimitBytes": 0,
+      "trafficUsedBytes": 313340990289,
+      "notifyPercent": 0,
+      "viewPosition": 18,
+      "countryCode": "RU",
+      "tags": [],
+      "createdAt": "2026-02-15T00:20:37.395Z",
+      "updatedAt": "2026-04-02T01:09:00.129Z",
+      "configProfile": {
+        "activeConfigProfileUuid": "265be993-6d13-40b7-9e16-cdac0bad93fb",
+        "activeInbounds": [
+          {
+            "uuid": "0996eee9-7f6e-46f4-8862-fa2c44f56609",
+            "profileUuid": "265be993-6d13-40b7-9e16-cdac0bad93fb",
+            "tag": "VLESS-YOUTUBE-NODES",
+            "type": "vless",
+            "network": "tcp",
+            "security": "none",
+            "port": 25565,
+            "rawInbound": {
+              "tag": "VLESS-YOUTUBE-NODES",
+              "port": 25565,
+              "protocol": "vless",
+              "settings": {
+                "clients": [],
+                "decryption": "none"
+              },
+              "sniffing": {
+                "enabled": false,
+                "routeOnly": false,
+                "destOverride": [
+                  "http",
+                  "tls",
+                  "quic",
+                  "fakedns"
+                ],
+                "metadataOnly": false
+              },
+              "streamSettings": {
+                "network": "tcp",
+                "security": "none",
+                "tcpSettings": {
+                  "header": {
+                    "type": "none"
+                  },
+                  "acceptProxyProtocol": false
+                }
+              }
+            }
+          }
+        ]
+      },
+      "providerUuid": "fb4e301b-bebc-4f76-89fe-f61eecc517ed",
+      "provider": {
+        "name": "VDS SELECTEL",
+        "uuid": "fb4e301b-bebc-4f76-89fe-f61eecc517ed",
+        "faviconLink": "https://vds.selectel.ru/",
+        "loginUrl": "https://vds.selectel.ru/panel/scalets/",
+        "createdAt": "2026-02-15T00:57:15.043Z",
+        "updatedAt": "2026-02-15T00:57:15.041Z"
+      },
+      "activePluginUuid": null,
+      "xrayUptime": 390764,
+      "usersOnline": 1,
+      "system": {
+        "info": {
+          "arch": "x64",
+          "cpus": 1,
+          "cpuModel": "Intel(R) Xeon(R) CPU E5-2670 v3 @ 2.30GHz",
+          "memoryTotal": 1003831296,
+          "hostname": "remnanode",
+          "platform": "linux",
+          "release": "5.15.0-173-generic",
+          "type": "Linux",
+          "version": "#183-Ubuntu SMP Fri Mar 6 13:29:34 UTC 2026",
+          "networkInterfaces": [
+            "lo",
+            "eth0"
+          ]
+        },
+        "stats": {
+          "memoryFree": 611086336,
+          "memoryUsed": 392744960,
+          "uptime": 1306041.63,
+          "loadAvg": [
+            0.06,
+            0.03,
+            0
+          ],
+          "interface": {
+            "interface": "eth0",
+            "rxBytesPerSec": 74711.28871128873,
+            "txBytesPerSec": 70515.48451548452,
+            "rxTotal": 4972867934744,
+            "txTotal": 4823480197895
+          }
+        }
+      },
+      "versions": {
+        "xray": "26.3.27",
+        "node": "2.7.0"
+      }
+    },
+    {
+      "uuid": "7f499d30-0231-47e0-ac24-9ada451f1e3e",
+      "name": "YouTube-2",
+      "address": "5.53.124.179",
+      "port": 3001,
+      "isConnected": true,
+      "isConnecting": false,
+      "isDisabled": false,
+      "lastStatusChange": "2026-04-02T00:47:01.382Z",
+      "lastStatusMessage": null,
+      "trafficResetDay": 1,
+      "consumptionMultiplier": 1,
+      "isTrafficTrackingActive": true,
+      "trafficLimitBytes": 0,
+      "trafficUsedBytes": 306744609651,
+      "notifyPercent": 0,
+      "viewPosition": 19,
+      "countryCode": "RU",
+      "tags": [],
+      "createdAt": "2026-02-15T00:22:58.707Z",
+      "updatedAt": "2026-04-02T01:09:00.138Z",
+      "configProfile": {
+        "activeConfigProfileUuid": "265be993-6d13-40b7-9e16-cdac0bad93fb",
+        "activeInbounds": [
+          {
+            "uuid": "0996eee9-7f6e-46f4-8862-fa2c44f56609",
+            "profileUuid": "265be993-6d13-40b7-9e16-cdac0bad93fb",
+            "tag": "VLESS-YOUTUBE-NODES",
+            "type": "vless",
+            "network": "tcp",
+            "security": "none",
+            "port": 25565,
+            "rawInbound": {
+              "tag": "VLESS-YOUTUBE-NODES",
+              "port": 25565,
+              "protocol": "vless",
+              "settings": {
+                "clients": [],
+                "decryption": "none"
+              },
+              "sniffing": {
+                "enabled": false,
+                "routeOnly": false,
+                "destOverride": [
+                  "http",
+                  "tls",
+                  "quic",
+                  "fakedns"
+                ],
+                "metadataOnly": false
+              },
+              "streamSettings": {
+                "network": "tcp",
+                "security": "none",
+                "tcpSettings": {
+                  "header": {
+                    "type": "none"
+                  },
+                  "acceptProxyProtocol": false
+                }
+              }
+            }
+          }
+        ]
+      },
+      "providerUuid": "fb4e301b-bebc-4f76-89fe-f61eecc517ed",
+      "provider": {
+        "name": "VDS SELECTEL",
+        "uuid": "fb4e301b-bebc-4f76-89fe-f61eecc517ed",
+        "faviconLink": "https://vds.selectel.ru/",
+        "loginUrl": "https://vds.selectel.ru/panel/scalets/",
+        "createdAt": "2026-02-15T00:57:15.043Z",
+        "updatedAt": "2026-02-15T00:57:15.041Z"
+      },
+      "activePluginUuid": null,
+      "xrayUptime": 390764,
+      "usersOnline": 1,
+      "system": {
+        "info": {
+          "arch": "x64",
+          "cpus": 1,
+          "cpuModel": "Intel(R) Xeon(R) CPU E5-2670 v3 @ 2.30GHz",
+          "memoryTotal": 1003831296,
+          "hostname": "remnanode",
+          "platform": "linux",
+          "release": "5.15.0-173-generic",
+          "type": "Linux",
+          "version": "#183-Ubuntu SMP Fri Mar 6 13:29:34 UTC 2026",
+          "networkInterfaces": [
+            "lo",
+            "eth0"
+          ]
+        },
+        "stats": {
+          "memoryFree": 619835392,
+          "memoryUsed": 383995904,
+          "uptime": 1306039.74,
+          "loadAvg": [
+            0.01,
+            0.02,
+            0
+          ],
+          "interface": {
+            "interface": "eth0",
+            "rxBytesPerSec": 31301.397205588823,
+            "txBytesPerSec": 29159.680638722555,
+            "rxTotal": 4940897334435,
+            "txTotal": 4804613374012
+          }
+        }
+      },
+      "versions": {
+        "xray": "26.3.27",
+        "node": "2.7.0"
+      }
+    },
+    {
+      "uuid": "6fd5b657-08d8-4808-8f36-bed7b8ef0470",
+      "name": "YouTube-3",
+      "address": "94.242.52.238",
+      "port": 3001,
+      "isConnected": true,
+      "isConnecting": false,
+      "isDisabled": false,
+      "lastStatusChange": "2026-04-02T00:47:01.372Z",
+      "lastStatusMessage": null,
+      "trafficResetDay": 1,
+      "consumptionMultiplier": 1,
+      "isTrafficTrackingActive": true,
+      "trafficLimitBytes": 0,
+      "trafficUsedBytes": 240748096906,
+      "notifyPercent": 0,
+      "viewPosition": 20,
+      "countryCode": "RU",
+      "tags": [],
+      "createdAt": "2026-02-15T00:45:40.601Z",
+      "updatedAt": "2026-04-02T01:09:00.128Z",
+      "configProfile": {
+        "activeConfigProfileUuid": "265be993-6d13-40b7-9e16-cdac0bad93fb",
+        "activeInbounds": [
+          {
+            "uuid": "0996eee9-7f6e-46f4-8862-fa2c44f56609",
+            "profileUuid": "265be993-6d13-40b7-9e16-cdac0bad93fb",
+            "tag": "VLESS-YOUTUBE-NODES",
+            "type": "vless",
+            "network": "tcp",
+            "security": "none",
+            "port": 25565,
+            "rawInbound": {
+              "tag": "VLESS-YOUTUBE-NODES",
+              "port": 25565,
+              "protocol": "vless",
+              "settings": {
+                "clients": [],
+                "decryption": "none"
+              },
+              "sniffing": {
+                "enabled": false,
+                "routeOnly": false,
+                "destOverride": [
+                  "http",
+                  "tls",
+                  "quic",
+                  "fakedns"
+                ],
+                "metadataOnly": false
+              },
+              "streamSettings": {
+                "network": "tcp",
+                "security": "none",
+                "tcpSettings": {
+                  "header": {
+                    "type": "none"
+                  },
+                  "acceptProxyProtocol": false
+                }
+              }
+            }
+          }
+        ]
+      },
+      "providerUuid": "fb55cada-fa98-44b5-8d94-2f058b62c992",
+      "provider": {
+        "name": "Veesp",
+        "uuid": "fb55cada-fa98-44b5-8d94-2f058b62c992",
+        "faviconLink": "https://veesp.com",
+        "loginUrl": "https://secure.veesp.com",
+        "createdAt": "2025-12-02T20:07:55.149Z",
+        "updatedAt": "2025-12-03T20:14:23.472Z"
+      },
+      "activePluginUuid": null,
+      "xrayUptime": 390765,
+      "usersOnline": 1,
+      "system": {
+        "info": {
+          "arch": "x64",
+          "cpus": 1,
+          "cpuModel": "Intel(R) Xeon(R) CPU E5-2680 v4 @ 2.40GHz",
+          "memoryTotal": 1109381120,
+          "hostname": "remnanode",
+          "platform": "linux",
+          "release": "6.8.0-106-generic",
+          "type": "Linux",
+          "version": "#106-Ubuntu SMP PREEMPT_DYNAMIC Fri Mar  6 07:58:08 UTC 2026",
+          "networkInterfaces": [
+            "lo",
+            "eth0"
+          ]
+        },
+        "stats": {
+          "memoryFree": 690081792,
+          "memoryUsed": 419299328,
+          "uptime": 1306041.03,
+          "loadAvg": [
+            0.01,
+            0.07,
+            0.07
+          ],
+          "interface": {
+            "interface": "eth0",
+            "rxBytesPerSec": 124602,
+            "txBytesPerSec": 109640,
+            "rxTotal": 3590993959592,
+            "txTotal": 3493683242047
+          }
+        }
+      },
+      "versions": {
+        "xray": "26.3.27",
+        "node": "2.7.0"
+      }
+    },
+    {
+      "uuid": "9b0d2012-2b4e-4f25-b54e-3ff7faeb4373",
+      "name": "YouTube-4",
+      "address": "94.242.52.232",
+      "port": 3001,
+      "isConnected": true,
+      "isConnecting": false,
+      "isDisabled": false,
+      "lastStatusChange": "2026-04-02T00:47:01.381Z",
+      "lastStatusMessage": null,
+      "trafficResetDay": 1,
+      "consumptionMultiplier": 1,
+      "isTrafficTrackingActive": true,
+      "trafficLimitBytes": 0,
+      "trafficUsedBytes": 244833695191,
+      "notifyPercent": 0,
+      "viewPosition": 21,
+      "countryCode": "RU",
+      "tags": [],
+      "createdAt": "2026-02-15T00:46:20.631Z",
+      "updatedAt": "2026-04-02T01:09:00.130Z",
+      "configProfile": {
+        "activeConfigProfileUuid": "265be993-6d13-40b7-9e16-cdac0bad93fb",
+        "activeInbounds": [
+          {
+            "uuid": "0996eee9-7f6e-46f4-8862-fa2c44f56609",
+            "profileUuid": "265be993-6d13-40b7-9e16-cdac0bad93fb",
+            "tag": "VLESS-YOUTUBE-NODES",
+            "type": "vless",
+            "network": "tcp",
+            "security": "none",
+            "port": 25565,
+            "rawInbound": {
+              "tag": "VLESS-YOUTUBE-NODES",
+              "port": 25565,
+              "protocol": "vless",
+              "settings": {
+                "clients": [],
+                "decryption": "none"
+              },
+              "sniffing": {
+                "enabled": false,
+                "routeOnly": false,
+                "destOverride": [
+                  "http",
+                  "tls",
+                  "quic",
+                  "fakedns"
+                ],
+                "metadataOnly": false
+              },
+              "streamSettings": {
+                "network": "tcp",
+                "security": "none",
+                "tcpSettings": {
+                  "header": {
+                    "type": "none"
+                  },
+                  "acceptProxyProtocol": false
+                }
+              }
+            }
+          }
+        ]
+      },
+      "providerUuid": "fb55cada-fa98-44b5-8d94-2f058b62c992",
+      "provider": {
+        "name": "Veesp",
+        "uuid": "fb55cada-fa98-44b5-8d94-2f058b62c992",
+        "faviconLink": "https://veesp.com",
+        "loginUrl": "https://secure.veesp.com",
+        "createdAt": "2025-12-02T20:07:55.149Z",
+        "updatedAt": "2025-12-03T20:14:23.472Z"
+      },
+      "activePluginUuid": null,
+      "xrayUptime": 390764,
+      "usersOnline": 1,
+      "system": {
+        "info": {
+          "arch": "x64",
+          "cpus": 1,
+          "cpuModel": "Intel(R) Xeon(R) CPU E5-2680 v4 @ 2.40GHz",
+          "memoryTotal": 1109385216,
+          "hostname": "remnanode",
+          "platform": "linux",
+          "release": "6.8.0-106-generic",
+          "type": "Linux",
+          "version": "#106-Ubuntu SMP PREEMPT_DYNAMIC Fri Mar  6 07:58:08 UTC 2026",
+          "networkInterfaces": [
+            "lo",
+            "eth0"
+          ]
+        },
+        "stats": {
+          "memoryFree": 695635968,
+          "memoryUsed": 413749248,
+          "uptime": 1305736.03,
+          "loadAvg": [
+            0.01,
+            0.05,
+            0.01
+          ],
+          "interface": {
+            "interface": "eth0",
+            "rxBytesPerSec": 147282.7172827173,
+            "txBytesPerSec": 133000.00000000003,
+            "rxTotal": 4369217491023,
+            "txTotal": 4251308522257
+          }
+        }
+      },
+      "versions": {
+        "xray": "26.3.27",
+        "node": "2.7.0"
+      }
+    }
+  ]
+}

@@ -1,0 +1,419 @@
+POST
+/api/ip-control/fetch-ips/{uuid}
+Request IP List for User
+
+
+Parameters
+Try it out
+Name	Description
+uuid *
+string
+(path)
+UUID of the user
+
+uuid
+Responses
+Code	Description	Links
+200	
+Return jobId for further processing
+
+Media type
+
+application/json
+Controls Accept header.
+Example Value
+Schema
+{
+  "response": {
+    "jobId": "string"
+  }
+}
+No links
+400	
+Validation error
+
+Media type
+
+application/json
+Example Value
+Schema
+{
+  "message": "string",
+  "statusCode": 400,
+  "errors": [
+    {
+      "validation": "uuid",
+      "code": "invalid_string",
+      "message": "Invalid uuid",
+      "path": [
+        "uuid"
+      ]
+    }
+  ]
+}
+No links
+404	
+User not found
+
+No links
+500	
+Server error
+
+Media type
+
+application/json
+Example Value
+Schema
+{
+  "timestamp": "string",
+  "path": "string",
+  "message": "string",
+  "errorCode": "string"
+}
+No links
+
+GET
+/api/ip-control/fetch-ips/result/{jobId}
+Get IP List Result by Job ID
+
+
+Parameters
+Try it out
+Name	Description
+jobId *
+string
+(path)
+Job ID
+
+jobId
+Responses
+Code	Description	Links
+200	
+Return result or status of the job
+
+Media type
+
+application/json
+Controls Accept header.
+Example Value
+Schema
+{
+  "response": {
+    "isCompleted": true,
+    "isFailed": true,
+    "progress": {
+      "total": 0,
+      "completed": 0,
+      "percent": 0
+    },
+    "result": {
+      "success": true,
+      "userUuid": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+      "userId": "string",
+      "nodes": [
+        {
+          "nodeUuid": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+          "nodeName": "string",
+          "countryCode": "string",
+          "ips": [
+            {
+              "ip": "string",
+              "lastSeen": "2026-04-02T00:48:06.460Z"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
+No links
+400	
+Validation error
+
+Media type
+
+application/json
+Example Value
+Schema
+{
+  "message": "string",
+  "statusCode": 400,
+  "errors": [
+    {
+      "validation": "uuid",
+      "code": "invalid_string",
+      "message": "Invalid uuid",
+      "path": [
+        "uuid"
+      ]
+    }
+  ]
+}
+No links
+404	
+Job not found
+
+No links
+500	
+Server error
+
+Media type
+
+application/json
+Example Value
+Schema
+{
+  "timestamp": "string",
+  "path": "string",
+  "message": "string",
+  "errorCode": "string"
+}
+No links
+
+POST
+/api/ip-control/drop-connections
+Drop Connections for Users or IPs
+
+
+Parameters
+Try it out
+No parameters
+
+Request body
+
+application/json
+Example Value
+Schema
+{
+  "dropBy": {
+    "by": "userUuids",
+    "userUuids": [
+      "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+    ]
+  },
+  "targetNodes": {
+    "target": "allNodes"
+  }
+}
+Responses
+Code	Description	Links
+200	
+Event sent to background executor
+
+Media type
+
+application/json
+Controls Accept header.
+Example Value
+Schema
+{
+  "response": {
+    "eventSent": true
+  }
+}
+No links
+400	
+Validation error
+
+Media type
+
+application/json
+Example Value
+Schema
+{
+  "message": "string",
+  "statusCode": 400,
+  "errors": [
+    {
+      "validation": "uuid",
+      "code": "invalid_string",
+      "message": "Invalid uuid",
+      "path": [
+        "uuid"
+      ]
+    }
+  ]
+}
+No links
+404	
+User not found // Connected nodes not found
+
+No links
+500	
+Server error
+
+Media type
+
+application/json
+Example Value
+Schema
+{
+  "timestamp": "string",
+  "path": "string",
+  "message": "string",
+  "errorCode": "string"
+}
+No links
+
+POST
+/api/ip-control/fetch-users-ips/{nodeUuid}
+Request Users IPs List for Node
+
+
+Parameters
+Try it out
+Name	Description
+nodeUuid *
+string
+(path)
+UUID of the node
+
+nodeUuid
+Responses
+Code	Description	Links
+200	
+Return jobId for further processing
+
+Media type
+
+application/json
+Controls Accept header.
+Example Value
+Schema
+{
+  "response": {
+    "jobId": "string"
+  }
+}
+No links
+400	
+Validation error
+
+Media type
+
+application/json
+Example Value
+Schema
+{
+  "message": "string",
+  "statusCode": 400,
+  "errors": [
+    {
+      "validation": "uuid",
+      "code": "invalid_string",
+      "message": "Invalid uuid",
+      "path": [
+        "uuid"
+      ]
+    }
+  ]
+}
+No links
+404	
+Node not found
+
+No links
+500	
+Server error
+
+Media type
+
+application/json
+Example Value
+Schema
+{
+  "timestamp": "string",
+  "path": "string",
+  "message": "string",
+  "errorCode": "string"
+}
+No links
+
+GET
+/api/ip-control/fetch-users-ips/result/{jobId}
+Get Users IPs List Result by Job ID
+
+
+Parameters
+Try it out
+Name	Description
+jobId *
+string
+(path)
+Job ID
+
+jobId
+Responses
+Code	Description	Links
+200	
+Return result or status of the job
+
+Media type
+
+application/json
+Controls Accept header.
+Example Value
+Schema
+{
+  "response": {
+    "isCompleted": true,
+    "isFailed": true,
+    "result": {
+      "success": true,
+      "nodeUuid": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+      "users": [
+        {
+          "userId": "string",
+          "ips": [
+            {
+              "ip": "string",
+              "lastSeen": "2026-04-02T00:48:06.468Z"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
+No links
+400	
+Validation error
+
+Media type
+
+application/json
+Example Value
+Schema
+{
+  "message": "string",
+  "statusCode": 400,
+  "errors": [
+    {
+      "validation": "uuid",
+      "code": "invalid_string",
+      "message": "Invalid uuid",
+      "path": [
+        "uuid"
+      ]
+    }
+  ]
+}
+No links
+404	
+Job not found
+
+No links
+500	
+Server error
+
+Media type
+
+application/json
+Example Value
+Schema
+{
+  "timestamp": "string",
+  "path": "string",
+  "message": "string",
+  "errorCode": "string"
+}

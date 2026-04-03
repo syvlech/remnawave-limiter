@@ -6,7 +6,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-[🇬🇧 English version](README.en.md)
+[🇬🇧 English version](README_en.md)
 
 ## Возможности
 

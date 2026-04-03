@@ -9,7 +9,6 @@ import (
 )
 
 func TestClient_GetNodes(t *testing.T) {
-	// 3 nodes: one connected+enabled, one connected+disabled, one disconnected+enabled
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/nodes" {
 			t.Errorf("unexpected path: %s", r.URL.Path)

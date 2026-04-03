@@ -19,7 +19,6 @@ const (
 	jobPollMaxTries  = 30
 )
 
-// Client is an HTTP client for the Remnawave API.
 type Client struct {
 	baseURL    string
 	token      string
@@ -27,7 +26,6 @@ type Client struct {
 	logger     *logrus.Logger
 }
 
-// NewClient creates a new API client with the given base URL and bearer token.
 func NewClient(baseURL, token string) *Client {
 	return &Client{
 		baseURL: baseURL,
@@ -38,7 +36,6 @@ func NewClient(baseURL, token string) *Client {
 	}
 }
 
-// SetLogger sets a logrus logger for the client.
 func (c *Client) SetLogger(logger *logrus.Logger) {
 	c.logger = logger
 }
@@ -61,7 +58,6 @@ func (c *Client) logError(args ...interface{}) {
 	}
 }
 
-// doRequest executes an HTTP request with retry logic for 5xx errors.
 func (c *Client) doRequest(ctx context.Context, method, path string, body interface{}) ([]byte, error) {
 	var reqBody io.Reader
 	if body != nil {
@@ -85,7 +81,6 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body interf
 			}
 			backoff *= 2
 
-			// Re-create body reader for retry
 			if body != nil {
 				data, _ := json.Marshal(body)
 				reqBody = bytes.NewReader(data)
@@ -112,7 +107,6 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body interf
 			continue
 		}
 
-		// Retry only on 5xx
 		if resp.StatusCode >= 500 {
 			lastErr = fmt.Errorf("API %s %s returned status %d: %s", method, path, resp.StatusCode, string(respBody))
 			continue
@@ -128,7 +122,6 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body interf
 	return nil, fmt.Errorf("API %s %s failed after %d retries: %w", method, path, maxRetries, lastErr)
 }
 
-// GetActiveNodes returns nodes that are connected and not disabled.
 func (c *Client) GetActiveNodes(ctx context.Context) ([]Node, error) {
 	data, err := c.doRequest(ctx, http.MethodGet, "/api/nodes", nil)
 	if err != nil {
@@ -151,9 +144,7 @@ func (c *Client) GetActiveNodes(ctx context.Context) ([]Node, error) {
 	return active, nil
 }
 
-// FetchUsersIPs starts a job to fetch user IPs for a node and polls until complete.
 func (c *Client) FetchUsersIPs(ctx context.Context, nodeUUID string) ([]UserIPEntry, error) {
-	// Start the job
 	data, err := c.doRequest(ctx, http.MethodPost, "/api/ip-control/fetch-users-ips/"+nodeUUID, nil)
 	if err != nil {
 		return nil, fmt.Errorf("start fetch-users-ips job: %w", err)
@@ -171,7 +162,6 @@ func (c *Client) FetchUsersIPs(ctx context.Context, nodeUUID string) ([]UserIPEn
 
 	c.logDebug(fmt.Sprintf("Started fetch-users-ips job %s for node %s", jobID, nodeUUID))
 
-	// Poll for result
 	for i := 0; i < jobPollMaxTries; i++ {
 		select {
 		case <-ctx.Done():
@@ -208,7 +198,6 @@ func (c *Client) FetchUsersIPs(ctx context.Context, nodeUUID string) ([]UserIPEn
 	return nil, fmt.Errorf("job %s timed out after %d polls", jobID, jobPollMaxTries)
 }
 
-// GetUserByID retrieves a user by their subscription ID.
 func (c *Client) GetUserByID(ctx context.Context, id string) (*UserData, error) {
 	data, err := c.doRequest(ctx, http.MethodGet, "/api/users/by-id/"+id, nil)
 	if err != nil {
@@ -223,7 +212,6 @@ func (c *Client) GetUserByID(ctx context.Context, id string) (*UserData, error) 
 	return &resp.Response, nil
 }
 
-// DisableUser disables a user by their UUID.
 func (c *Client) DisableUser(ctx context.Context, uuid string) error {
 	_, err := c.doRequest(ctx, http.MethodPost, "/api/users/"+uuid+"/actions/disable", nil)
 	if err != nil {
@@ -232,7 +220,6 @@ func (c *Client) DisableUser(ctx context.Context, uuid string) error {
 	return nil
 }
 
-// EnableUser enables a user by their UUID.
 func (c *Client) EnableUser(ctx context.Context, uuid string) error {
 	_, err := c.doRequest(ctx, http.MethodPost, "/api/users/"+uuid+"/actions/enable", nil)
 	if err != nil {
@@ -241,7 +228,6 @@ func (c *Client) EnableUser(ctx context.Context, uuid string) error {
 	return nil
 }
 
-// DropConnections drops active connections for the given user UUIDs on all nodes.
 func (c *Client) DropConnections(ctx context.Context, userUUIDs []string) error {
 	req := DropConnectionsRequest{
 		DropBy: DropBy{

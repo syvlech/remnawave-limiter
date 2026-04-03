@@ -2,21 +2,20 @@ package telegram
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
-	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/mymmrac/telego"
+	tu "github.com/mymmrac/telego/telegoutil"
 	"github.com/sirupsen/logrus"
+
+	"github.com/remnawave/limiter/internal/i18n"
 )
 
-// ActionHandler is called when an admin presses an inline button.
-// action is one of: "drop", "disable", "ignore", "enable".
 type ActionHandler func(ctx context.Context, action, userUUID, userID string) error
 
-// Bot wraps the Telegram Bot API for sending alerts and handling callbacks.
 type Bot struct {
-	api      *tgbotapi.BotAPI
+	api      *telego.Bot
 	chatID   int64
 	threadID int64
 	adminIDs map[int64]bool
@@ -24,9 +23,8 @@ type Bot struct {
 	onAction ActionHandler
 }
 
-// NewBot creates a new Bot instance with the given configuration.
 func NewBot(token string, chatID, threadID int64, adminIDs []int64, logger *logrus.Logger) (*Bot, error) {
-	botAPI, err := tgbotapi.NewBotAPI(token)
+	bot, err := telego.NewBot(token)
 	if err != nil {
 		return nil, fmt.Errorf("не удалось создать Telegram бота: %w", err)
 	}
@@ -37,7 +35,7 @@ func NewBot(token string, chatID, threadID int64, adminIDs []int64, logger *logr
 	}
 
 	return &Bot{
-		api:      botAPI,
+		api:      bot,
 		chatID:   chatID,
 		threadID: threadID,
 		adminIDs: admins,
@@ -45,106 +43,98 @@ func NewBot(token string, chatID, threadID int64, adminIDs []int64, logger *logr
 	}, nil
 }
 
-// SetActionHandler sets the callback handler for inline button presses.
 func (b *Bot) SetActionHandler(handler ActionHandler) {
 	b.onAction = handler
 }
 
-// sendMsg sends a message with optional inline keyboard and thread support.
-func (b *Bot) sendMsg(text string, keyboard *tgbotapi.InlineKeyboardMarkup) error {
-	params := tgbotapi.Params{}
-	params.AddFirstValid("chat_id", b.chatID)
-	params["text"] = text
-	params["parse_mode"] = tgbotapi.ModeHTML
-	params["disable_web_page_preview"] = "true"
+func (b *Bot) sendMsg(text string, keyboard *telego.InlineKeyboardMarkup) error {
+	msg := tu.Message(tu.ID(b.chatID), text).
+		WithParseMode(telego.ModeHTML).
+		WithLinkPreviewOptions(&telego.LinkPreviewOptions{IsDisabled: true})
 
 	if b.threadID != 0 {
-		params.AddNonZero64("message_thread_id", b.threadID)
+		msg = msg.WithMessageThreadID(int(b.threadID))
 	}
 
 	if keyboard != nil {
-		data, err := json.Marshal(keyboard)
-		if err != nil {
-			return fmt.Errorf("не удалось сериализовать клавиатуру: %w", err)
-		}
-		params["reply_markup"] = string(data)
+		msg = msg.WithReplyMarkup(keyboard)
 	}
 
-	_, err := b.api.MakeRequest("sendMessage", params)
+	_, err := b.api.SendMessage(context.Background(), msg)
 	if err != nil {
 		return fmt.Errorf("не удалось отправить сообщение: %w", err)
 	}
 	return nil
 }
 
-// SendManualAlert sends a manual alert with 3 action buttons.
-func (b *Bot) SendManualAlert(text string, userUUID string, userID string) error {
-	keyboard := tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🔄 Сбросить подключения", fmt.Sprintf("drop:%s:%s", userUUID, userID)),
-			tgbotapi.NewInlineKeyboardButtonData("🔒 Отключить подписку", fmt.Sprintf("disable:%s:%s", userUUID, userID)),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🔇 Игнорировать", fmt.Sprintf("ignore:%s:%s", userUUID, userID)),
-		),
-	)
-	return b.sendMsg(text, &keyboard)
+func (b *Bot) SendManualAlert(text string, userUUID string, userID string, disableDuration int) error {
+	rows := [][]telego.InlineKeyboardButton{
+		{
+			tu.InlineKeyboardButton(i18n.T("button.drop")).WithCallbackData(fmt.Sprintf("drop:%s:%s", userUUID, userID)),
+			tu.InlineKeyboardButton(i18n.T("button.disable_forever")).WithCallbackData(fmt.Sprintf("disable:%s:%s", userUUID, userID)),
+		},
+	}
+
+	if disableDuration > 0 {
+		tempLabel := fmt.Sprintf("%s %s", i18n.T("button.disable_for"), FormatDuration(disableDuration))
+		rows = append(rows, []telego.InlineKeyboardButton{
+			tu.InlineKeyboardButton(tempLabel).WithCallbackData(fmt.Sprintf("disable_temp:%s:%s", userUUID, userID)),
+		})
+	}
+
+	rows = append(rows, []telego.InlineKeyboardButton{
+		tu.InlineKeyboardButton(i18n.T("button.ignore")).WithCallbackData(fmt.Sprintf("ignore:%s:%s", userUUID, userID)),
+	})
+
+	keyboard := &telego.InlineKeyboardMarkup{InlineKeyboard: rows}
+	return b.sendMsg(text, keyboard)
 }
 
-// SendAutoAlert sends an auto-disable alert with 1 "Enable" button.
 func (b *Bot) SendAutoAlert(text string, userUUID string) error {
-	keyboard := tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🔓 Включить подписку", fmt.Sprintf("enable:%s:", userUUID)),
+	keyboard := tu.InlineKeyboard(
+		tu.InlineKeyboardRow(
+			tu.InlineKeyboardButton(i18n.T("button.enable")).WithCallbackData(fmt.Sprintf("enable:%s:", userUUID)),
 		),
 	)
-	return b.sendMsg(text, &keyboard)
+	return b.sendMsg(text, keyboard)
 }
 
-// SendMessage sends a plain text message without any keyboard.
 func (b *Bot) SendMessage(text string) error {
 	return b.sendMsg(text, nil)
 }
 
-// StartPolling starts a long polling loop for handling inline button callbacks.
-// It blocks until the context is cancelled.
 func (b *Bot) StartPolling(ctx context.Context) {
-	u := tgbotapi.NewUpdate(0)
-	u.Timeout = 30
-
-	updates := b.api.GetUpdatesChan(u)
-
-	b.logger.Info("Telegram бот: запущен polling")
-
-	for {
-		select {
-		case <-ctx.Done():
-			b.logger.Info("Telegram бот: polling остановлен")
-			b.api.StopReceivingUpdates()
-			return
-		case update := <-updates:
-			if update.CallbackQuery == nil {
-				continue
-			}
-			b.handleCallback(ctx, update.CallbackQuery)
-		}
-	}
-}
-
-// handleCallback processes an inline button callback.
-func (b *Bot) handleCallback(ctx context.Context, callback *tgbotapi.CallbackQuery) {
-	callerID := callback.From.ID
-
-	// Check admin access
-	if !b.adminIDs[callerID] {
-		answer := tgbotapi.NewCallback(callback.ID, "⛔ Нет доступа")
-		if _, err := b.api.Request(answer); err != nil {
-			b.logger.WithError(err).Error("Telegram бот: ошибка ответа на callback")
-		}
+	updates, err := b.api.UpdatesViaLongPolling(ctx, &telego.GetUpdatesParams{
+		Timeout: 30,
+	})
+	if err != nil {
+		b.logger.WithError(err).Error("Telegram бот: ошибка запуска polling")
 		return
 	}
 
-	// Parse callback data: action:userUUID:userID
+	b.logger.Info("Telegram бот: запущен polling")
+
+	for update := range updates {
+		if update.CallbackQuery == nil {
+			continue
+		}
+		b.handleCallback(ctx, update.CallbackQuery)
+	}
+
+	b.logger.Info("Telegram бот: polling остановлен")
+}
+
+func (b *Bot) handleCallback(ctx context.Context, callback *telego.CallbackQuery) {
+	callerID := callback.From.ID
+
+	if !b.adminIDs[callerID] {
+		_ = b.api.AnswerCallbackQuery(ctx, &telego.AnswerCallbackQueryParams{
+			CallbackQueryID: callback.ID,
+			Text:            i18n.T("callback.no_access"),
+		})
+		return
+	}
+
 	parts := strings.SplitN(callback.Data, ":", 3)
 	if len(parts) < 3 {
 		b.logger.WithField("data", callback.Data).Warn("Telegram бот: неверный формат callback data")
@@ -159,11 +149,10 @@ func (b *Bot) handleCallback(ctx context.Context, callback *tgbotapi.CallbackQue
 	if callback.From.LastName != "" {
 		adminName += " " + callback.From.LastName
 	}
-	if callback.From.UserName != "" {
-		adminName = "@" + callback.From.UserName
+	if callback.From.Username != "" {
+		adminName = "@" + callback.From.Username
 	}
 
-	// Call action handler
 	if b.onAction != nil {
 		if err := b.onAction(ctx, action, userUUID, userID); err != nil {
 			b.logger.WithError(err).WithFields(logrus.Fields{
@@ -172,41 +161,51 @@ func (b *Bot) handleCallback(ctx context.Context, callback *tgbotapi.CallbackQue
 				"userID":   userID,
 			}).Error("Telegram бот: ошибка выполнения действия")
 
-			answer := tgbotapi.NewCallback(callback.ID, "❌ Ошибка: "+err.Error())
-			if _, err := b.api.Request(answer); err != nil {
-				b.logger.WithError(err).Error("Telegram бот: ошибка ответа на callback")
-			}
+			_ = b.api.AnswerCallbackQuery(ctx, &telego.AnswerCallbackQueryParams{
+				CallbackQueryID: callback.ID,
+				Text:            i18n.T("callback.error") + ": " + err.Error(),
+			})
 			return
 		}
 	}
 
-	// Use userUUID as fallback for username display in action result
 	username := userUUID
 
-	// Edit original message to append action result and remove keyboard
 	actionResult := FormatActionResult(action, adminName, username)
 
-	originalHTML := callback.Message.Text
-	if originalHTML == "" {
-		originalHTML = callback.Message.Caption
+	originalText := ""
+	if callback.Message != nil {
+		if msg, ok := callback.Message.(*telego.Message); ok {
+			originalText = msg.Text
+			if originalText == "" {
+				originalText = msg.Caption
+			}
+		}
 	}
 
-	editMsg := tgbotapi.NewEditMessageText(b.chatID, callback.Message.MessageID, originalHTML+actionResult)
-	editMsg.ParseMode = tgbotapi.ModeHTML
-	editMsg.DisableWebPagePreview = true
-	// Remove keyboard by setting empty inline_keyboard array
-	emptyMarkup := tgbotapi.InlineKeyboardMarkup{
-		InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{},
-	}
-	editMsg.ReplyMarkup = &emptyMarkup
-
-	if _, err := b.api.Request(editMsg); err != nil {
-		b.logger.WithError(err).Error("Telegram бот: ошибка редактирования сообщения")
+	newText := originalText + actionResult
+	emptyMarkup := &telego.InlineKeyboardMarkup{
+		InlineKeyboard: [][]telego.InlineKeyboardButton{},
 	}
 
-	// Send callback answer
-	answer := tgbotapi.NewCallback(callback.ID, "✅ Выполнено")
-	if _, err := b.api.Request(answer); err != nil {
-		b.logger.WithError(err).Error("Telegram бот: ошибка ответа на callback")
+	if callback.Message != nil {
+		if msg, ok := callback.Message.(*telego.Message); ok {
+			_, err := b.api.EditMessageText(ctx, &telego.EditMessageTextParams{
+				ChatID:                tu.ID(b.chatID),
+				MessageID:             msg.MessageID,
+				Text:                  newText,
+				ParseMode:             telego.ModeHTML,
+				LinkPreviewOptions:    &telego.LinkPreviewOptions{IsDisabled: true},
+				ReplyMarkup:           emptyMarkup,
+			})
+			if err != nil {
+				b.logger.WithError(err).Error("Telegram бот: ошибка редактирования сообщения")
+			}
+		}
 	}
+
+	_ = b.api.AnswerCallbackQuery(ctx, &telego.AnswerCallbackQueryParams{
+		CallbackQueryID: callback.ID,
+		Text:            i18n.T("callback.done"),
+	})
 }

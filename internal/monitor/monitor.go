@@ -11,11 +11,10 @@ import (
 	"github.com/remnawave/limiter/internal/api"
 	"github.com/remnawave/limiter/internal/cache"
 	"github.com/remnawave/limiter/internal/config"
+	"github.com/remnawave/limiter/internal/i18n"
 	"github.com/remnawave/limiter/internal/telegram"
 )
 
-// Monitor is the core monitoring loop that polls active nodes for user IPs
-// and detects violations when a subscription is used from too many devices.
 type Monitor struct {
 	config   *config.Config
 	api      *api.Client
@@ -25,8 +24,6 @@ type Monitor struct {
 	location *time.Location
 }
 
-// New creates a new Monitor with the given dependencies. It loads the timezone
-// from the config and returns an error if the timezone is invalid.
 func New(cfg *config.Config, apiClient *api.Client, c *cache.Cache, bot *telegram.Bot, logger *logrus.Logger) (*Monitor, error) {
 	loc, err := time.LoadLocation(cfg.Timezone)
 	if err != nil {
@@ -43,25 +40,22 @@ func New(cfg *config.Config, apiClient *api.Client, c *cache.Cache, bot *telegra
 	}, nil
 }
 
-// Run starts the main monitoring loop. It ticks at CheckInterval and, if
-// auto mode with a duration is configured, also runs the restore loop.
 func (m *Monitor) Run(ctx context.Context) {
 	ticker := time.NewTicker(time.Duration(m.config.CheckInterval) * time.Second)
 	defer ticker.Stop()
 
-	if m.config.ActionMode == "auto" && m.config.AutoDisableDuration > 0 {
+	if m.config.AutoDisableDuration > 0 {
 		go m.restoreLoop(ctx)
 	}
 
-	m.logger.Info("🚀 Мониторинг запущен")
+	m.logger.Info(i18n.T("log.monitoring_started"))
 
-	// Run an initial check immediately
 	m.check(ctx)
 
 	for {
 		select {
 		case <-ctx.Done():
-			m.logger.Info("Мониторинг остановлен")
+			m.logger.Info(i18n.T("log.monitoring_stopped"))
 			return
 		case <-ticker.C:
 			m.check(ctx)
@@ -69,8 +63,6 @@ func (m *Monitor) Run(ctx context.Context) {
 	}
 }
 
-// check performs a single monitoring cycle: fetches active nodes, collects
-// user IPs from all nodes in parallel, aggregates them, and checks each user.
 func (m *Monitor) check(ctx context.Context) {
 	nodes, err := m.api.GetActiveNodes(ctx)
 	if err != nil {
@@ -83,7 +75,6 @@ func (m *Monitor) check(ctx context.Context) {
 		return
 	}
 
-	// Fetch user IPs from all nodes in parallel
 	type nodeResult struct {
 		nodeName string
 		nodeUUID string
@@ -110,7 +101,6 @@ func (m *Monitor) check(ctx context.Context) {
 
 	wg.Wait()
 
-	// Aggregate: map[userID] → []ActiveIP
 	activeWindow := time.Duration(m.config.ActiveIPWindow) * time.Second
 	cutoff := time.Now().Add(-activeWindow)
 	aggregated := make(map[string][]api.ActiveIP)
@@ -143,9 +133,7 @@ func (m *Monitor) check(ctx context.Context) {
 	}
 }
 
-// checkUser evaluates a single user's active IPs against their device limit.
 func (m *Monitor) checkUser(ctx context.Context, userID string, activeIPs []api.ActiveIP) {
-	// Deduplicate IPs by address (keep latest lastSeen)
 	uniqueMap := make(map[string]api.ActiveIP)
 	for _, ip := range activeIPs {
 		existing, ok := uniqueMap[ip.IP]
@@ -159,7 +147,6 @@ func (m *Monitor) checkUser(ctx context.Context, userID string, activeIPs []api.
 		uniqueIPs = append(uniqueIPs, ip)
 	}
 
-	// Check whitelist
 	whitelisted, err := m.cache.IsWhitelisted(ctx, userID)
 	if err != nil {
 		m.logger.WithError(err).WithField("userID", userID).Error("Ошибка проверки whitelist")
@@ -169,26 +156,21 @@ func (m *Monitor) checkUser(ctx context.Context, userID string, activeIPs []api.
 		return
 	}
 
-	// Get user data
 	user, err := m.getUser(ctx, userID)
 	if err != nil {
 		m.logger.WithError(err).WithField("userID", userID).Error("Ошибка получения данных пользователя")
 		return
 	}
 
-	// Resolve device limit
 	limit := m.resolveLimit(user.HWIDDeviceLimit)
 	if limit == 0 {
-		// Unlimited
 		return
 	}
 
-	// Check if violation
 	if len(uniqueIPs) <= limit+m.config.Tolerance {
 		return
 	}
 
-	// Check cooldown
 	active, err := m.cache.IsCooldownActive(ctx, userID)
 	if err != nil {
 		m.logger.WithError(err).WithField("userID", userID).Error("Ошибка проверки cooldown")
@@ -198,26 +180,31 @@ func (m *Monitor) checkUser(ctx context.Context, userID string, activeIPs []api.
 		return
 	}
 
-	// Set cooldown
 	if err := m.cache.SetCooldown(ctx, userID, time.Duration(m.config.Cooldown)*time.Second); err != nil {
 		m.logger.WithError(err).WithField("userID", userID).Error("Ошибка установки cooldown")
 	}
 
+	violationCount, err := m.cache.IncrViolationCount(ctx, userID)
+	if err != nil {
+		m.logger.WithError(err).WithField("userID", userID).Error("Ошибка инкремента счётчика нарушений")
+		violationCount = 1
+	}
+
 	m.logger.WithFields(logrus.Fields{
-		"userID":   userID,
-		"username": user.Username,
-		"ips":      len(uniqueIPs),
-		"limit":    limit,
-	}).Warn("Обнаружено превышение лимита устройств")
+		"userID":     userID,
+		"username":   user.Username,
+		"ips":        len(uniqueIPs),
+		"limit":      limit,
+		"violations": violationCount,
+	}).Warn(i18n.T("log.limit_exceeded"))
 
 	if m.config.ActionMode == "auto" {
-		m.handleAutoAction(ctx, user, uniqueIPs, limit)
+		m.handleAutoAction(ctx, user, uniqueIPs, limit, violationCount)
 	} else {
-		m.handleManualAction(user, uniqueIPs, limit)
+		m.handleManualAction(user, uniqueIPs, limit, violationCount)
 	}
 }
 
-// getUser retrieves a user from cache, falling back to an API call on miss.
 func (m *Monitor) getUser(ctx context.Context, userID string) (*api.CachedUser, error) {
 	cached, err := m.cache.GetUser(ctx, userID)
 	if err != nil {
@@ -227,13 +214,11 @@ func (m *Monitor) getUser(ctx context.Context, userID string) (*api.CachedUser, 
 		return cached, nil
 	}
 
-	// Cache miss — fetch from API
 	userData, err := m.api.GetUserByID(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("api get user: %w", err)
 	}
 
-	// Convert to CachedUser
 	cu := &api.CachedUser{
 		UUID:     userData.UUID,
 		UserID:   userID,
@@ -250,11 +235,10 @@ func (m *Monitor) getUser(ctx context.Context, userID string) (*api.CachedUser, 
 	if userData.HWIDDeviceLimit != nil {
 		cu.HWIDDeviceLimit = *userData.HWIDDeviceLimit
 	} else {
-		cu.HWIDDeviceLimit = -1 // null → use default
+		cu.HWIDDeviceLimit = -1
 	}
 	cu.SubscriptionURL = userData.SubscriptionURL
 
-	// Cache it
 	ttl := time.Duration(m.config.UserCacheTTL) * time.Second
 	if err := m.cache.SetUser(ctx, userID, cu, ttl); err != nil {
 		m.logger.WithError(err).WithField("userID", userID).Warn("Ошибка кэширования пользователя")
@@ -263,11 +247,9 @@ func (m *Monitor) getUser(ctx context.Context, userID string) (*api.CachedUser, 
 	return cu, nil
 }
 
-// resolveLimit returns the effective device limit for a user.
-// 0 means unlimited (skip check), -1 means use the default from config.
 func (m *Monitor) resolveLimit(hwidDeviceLimit int) int {
 	if hwidDeviceLimit == 0 {
-		return 0 // unlimited
+		return 0
 	}
 	if hwidDeviceLimit == -1 {
 		return m.config.DefaultDeviceLimit
@@ -275,17 +257,14 @@ func (m *Monitor) resolveLimit(hwidDeviceLimit int) int {
 	return hwidDeviceLimit
 }
 
-// handleManualAction sends a manual alert via Telegram with action buttons.
-func (m *Monitor) handleManualAction(user *api.CachedUser, ips []api.ActiveIP, limit int) {
-	text := telegram.FormatManualAlert(user, ips, limit, m.location)
-	if err := m.bot.SendManualAlert(text, user.UUID, user.UserID); err != nil {
+func (m *Monitor) handleManualAction(user *api.CachedUser, ips []api.ActiveIP, limit int, violationCount int64) {
+	text := telegram.FormatManualAlert(user, ips, limit, violationCount, m.location)
+	if err := m.bot.SendManualAlert(text, user.UUID, user.UserID, m.config.AutoDisableDuration); err != nil {
 		m.logger.WithError(err).WithField("userID", user.UserID).Error("Ошибка отправки manual alert")
 	}
 }
 
-// handleAutoAction disables the user, optionally sets a restore timer,
-// and sends an auto alert via Telegram.
-func (m *Monitor) handleAutoAction(ctx context.Context, user *api.CachedUser, ips []api.ActiveIP, limit int) {
+func (m *Monitor) handleAutoAction(ctx context.Context, user *api.CachedUser, ips []api.ActiveIP, limit int, violationCount int64) {
 	if err := m.api.DisableUser(ctx, user.UUID); err != nil {
 		m.logger.WithError(err).WithField("userID", user.UserID).Error("Ошибка отключения пользователя")
 		return
@@ -298,14 +277,12 @@ func (m *Monitor) handleAutoAction(ctx context.Context, user *api.CachedUser, ip
 		}
 	}
 
-	text := telegram.FormatAutoAlert(user, ips, limit, m.config.AutoDisableDuration, m.location)
+	text := telegram.FormatAutoAlert(user, ips, limit, m.config.AutoDisableDuration, violationCount, m.location)
 	if err := m.bot.SendAutoAlert(text, user.UUID); err != nil {
 		m.logger.WithError(err).WithField("userID", user.UserID).Error("Ошибка отправки auto alert")
 	}
 }
 
-// restoreLoop periodically checks for expired restore timers and re-enables
-// the corresponding users.
 func (m *Monitor) restoreLoop(ctx context.Context) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
@@ -329,7 +306,7 @@ func (m *Monitor) restoreLoop(ctx context.Context) {
 
 				m.logger.WithField("uuid", uuid).Info("Пользователь автоматически включён по таймеру")
 
-				msg := fmt.Sprintf("🔓 Подписка <code>%s</code> автоматически включена по таймеру", uuid)
+				msg := fmt.Sprintf(i18n.T("restore.message"), uuid)
 				if err := m.bot.SendMessage(msg); err != nil {
 					m.logger.WithError(err).Error("Ошибка отправки уведомления о восстановлении")
 				}

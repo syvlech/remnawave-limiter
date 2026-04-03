@@ -25,7 +25,6 @@ func setupTestCache(t *testing.T) *Cache {
 		t.Skipf("Redis unavailable: %v", err)
 	}
 
-	// Flush test DB
 	c.client.FlushDB(ctx)
 
 	t.Cleanup(func() {
@@ -51,7 +50,6 @@ func TestCache_UserData(t *testing.T) {
 		SubscriptionURL: "https://example.com/sub",
 	}
 
-	// Get non-existent user returns nil, nil
 	got, err := c.GetUser(ctx, "user-456")
 	if err != nil {
 		t.Fatalf("GetUser error: %v", err)
@@ -60,12 +58,10 @@ func TestCache_UserData(t *testing.T) {
 		t.Fatalf("expected nil for non-existent user, got %+v", got)
 	}
 
-	// Set user
 	if err := c.SetUser(ctx, "user-456", user, 10*time.Second); err != nil {
 		t.Fatalf("SetUser error: %v", err)
 	}
 
-	// Get user and verify fields
 	got, err = c.GetUser(ctx, "user-456")
 	if err != nil {
 		t.Fatalf("GetUser error: %v", err)
@@ -103,7 +99,6 @@ func TestCache_Cooldown(t *testing.T) {
 	c := setupTestCache(t)
 	ctx := context.Background()
 
-	// No cooldown initially
 	active, err := c.IsCooldownActive(ctx, "user-1")
 	if err != nil {
 		t.Fatalf("IsCooldownActive error: %v", err)
@@ -112,12 +107,10 @@ func TestCache_Cooldown(t *testing.T) {
 		t.Fatal("expected no cooldown initially")
 	}
 
-	// Set cooldown
 	if err := c.SetCooldown(ctx, "user-1", 10*time.Second); err != nil {
 		t.Fatalf("SetCooldown error: %v", err)
 	}
 
-	// Check active
 	active, err = c.IsCooldownActive(ctx, "user-1")
 	if err != nil {
 		t.Fatalf("IsCooldownActive error: %v", err)
@@ -131,7 +124,6 @@ func TestCache_Whitelist(t *testing.T) {
 	c := setupTestCache(t)
 	ctx := context.Background()
 
-	// Not whitelisted initially
 	ok, err := c.IsWhitelisted(ctx, "user-1")
 	if err != nil {
 		t.Fatalf("IsWhitelisted error: %v", err)
@@ -140,12 +132,10 @@ func TestCache_Whitelist(t *testing.T) {
 		t.Fatal("expected not whitelisted initially")
 	}
 
-	// Add to whitelist
 	if err := c.AddToWhitelist(ctx, "user-1"); err != nil {
 		t.Fatalf("AddToWhitelist error: %v", err)
 	}
 
-	// Check whitelisted
 	ok, err = c.IsWhitelisted(ctx, "user-1")
 	if err != nil {
 		t.Fatalf("IsWhitelisted error: %v", err)
@@ -154,12 +144,10 @@ func TestCache_Whitelist(t *testing.T) {
 		t.Fatal("expected whitelisted after add")
 	}
 
-	// Remove from whitelist
 	if err := c.RemoveFromWhitelist(ctx, "user-1"); err != nil {
 		t.Fatalf("RemoveFromWhitelist error: %v", err)
 	}
 
-	// Check not whitelisted after removal
 	ok, err = c.IsWhitelisted(ctx, "user-1")
 	if err != nil {
 		t.Fatalf("IsWhitelisted error: %v", err)
@@ -168,7 +156,6 @@ func TestCache_Whitelist(t *testing.T) {
 		t.Fatal("expected not whitelisted after removal")
 	}
 
-	// InitWhitelist
 	if err := c.InitWhitelist(ctx, []string{"a", "b", "c"}); err != nil {
 		t.Fatalf("InitWhitelist error: %v", err)
 	}
@@ -187,12 +174,10 @@ func TestCache_RestoreTimer(t *testing.T) {
 	c := setupTestCache(t)
 	ctx := context.Background()
 
-	// Set timer that expires in 1 second
 	if err := c.SetRestoreTimer(ctx, "uuid-abc", 1*time.Second); err != nil {
 		t.Fatalf("SetRestoreTimer error: %v", err)
 	}
 
-	// No expired timers yet
 	expired, err := c.GetExpiredRestoreTimers(ctx)
 	if err != nil {
 		t.Fatalf("GetExpiredRestoreTimers error: %v", err)
@@ -201,10 +186,8 @@ func TestCache_RestoreTimer(t *testing.T) {
 		t.Fatalf("expected no expired timers, got %v", expired)
 	}
 
-	// Wait for expiry
 	time.Sleep(1500 * time.Millisecond)
 
-	// Now should be expired
 	expired, err = c.GetExpiredRestoreTimers(ctx)
 	if err != nil {
 		t.Fatalf("GetExpiredRestoreTimers error: %v", err)
@@ -213,7 +196,6 @@ func TestCache_RestoreTimer(t *testing.T) {
 		t.Fatalf("expected [uuid-abc], got %v", expired)
 	}
 
-	// Should be removed after retrieval
 	expired, err = c.GetExpiredRestoreTimers(ctx)
 	if err != nil {
 		t.Fatalf("GetExpiredRestoreTimers error: %v", err)
@@ -223,7 +205,6 @@ func TestCache_RestoreTimer(t *testing.T) {
 	}
 }
 
-// Verify that New returns an error for an invalid URL (not a skip - this doesn't need Redis)
 func TestCache_InvalidURL(t *testing.T) {
 	_, err := New("not-a-valid-url://bad")
 	if err == nil {
@@ -231,9 +212,8 @@ func TestCache_InvalidURL(t *testing.T) {
 	}
 }
 
-// Verify the internal redis client type is correct
 func TestCache_ClientType(t *testing.T) {
 	c := setupTestCache(t)
-	_ = c.client // just ensure it's accessible as *redis.Client
+	_ = c.client
 	var _ *redis.Client = c.client
 }

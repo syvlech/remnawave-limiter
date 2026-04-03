@@ -2,8 +2,6 @@ package api
 
 import "time"
 
-// --- Nodes ---
-
 type NodesResponse struct {
 	Response []Node `json:"response"`
 }
@@ -16,8 +14,6 @@ type Node struct {
 	IsDisabled  bool   `json:"isDisabled"`
 	CountryCode string `json:"countryCode"`
 }
-
-// --- Fetch Users IPs (job-based) ---
 
 type JobResponse struct {
 	Response struct {
@@ -49,8 +45,6 @@ type IPInfo struct {
 	LastSeen time.Time `json:"lastSeen"`
 }
 
-// --- User ---
-
 type UserResponse struct {
 	Response UserData `json:"response"`
 }
@@ -65,8 +59,6 @@ type UserData struct {
 	HWIDDeviceLimit *int    `json:"hwidDeviceLimit"`
 	SubscriptionURL string  `json:"subscriptionUrl,omitempty"`
 }
-
-// --- Drop Connections ---
 
 type DropConnectionsRequest struct {
 	DropBy      DropBy      `json:"dropBy"`
@@ -88,8 +80,6 @@ type DropConnectionsResponse struct {
 	} `json:"response"`
 }
 
-// --- Internal aggregated data ---
-
 type UserIPAggregated struct {
 	UserID    string
 	ActiveIPs []ActiveIP
@@ -102,15 +92,13 @@ type ActiveIP struct {
 	NodeUUID string
 }
 
-// --- Cached user info ---
-
 type CachedUser struct {
 	UUID            string `json:"uuid"`
 	UserID          string `json:"user_id"`
 	Username        string `json:"username"`
 	Email           string `json:"email"`
 	TelegramID      int64  `json:"telegram_id"`
-	HWIDDeviceLimit int    `json:"hwid_device_limit"` // -1 = null (use default), 0 = unlimited
+	HWIDDeviceLimit int    `json:"hwid_device_limit"`
 	Status          string `json:"status"`
 	SubscriptionURL string `json:"subscription_url"`
 }

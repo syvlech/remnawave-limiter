@@ -5,7 +5,6 @@ import (
 	"testing"
 )
 
-// helper to clear all config-related env vars
 func clearEnv() {
 	vars := []string{
 		"REMNAWAVE_API_URL", "REMNAWAVE_API_TOKEN",
@@ -16,13 +15,13 @@ func clearEnv() {
 		"WHITELIST_USER_IDS",
 		"REDIS_URL",
 		"TIMEZONE",
+		"LANGUAGE",
 	}
 	for _, v := range vars {
 		os.Unsetenv(v)
 	}
 }
 
-// helper to set all required env vars to valid values
 func setRequiredEnv() {
 	os.Setenv("REMNAWAVE_API_URL", "https://api.example.com")
 	os.Setenv("REMNAWAVE_API_TOKEN", "test-token-123")
@@ -40,7 +39,6 @@ func TestLoadConfig_Defaults(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Required fields
 	if cfg.RemnawaveAPIURL != "https://api.example.com" {
 		t.Errorf("RemnawaveAPIURL = %q, want %q", cfg.RemnawaveAPIURL, "https://api.example.com")
 	}
@@ -57,7 +55,6 @@ func TestLoadConfig_Defaults(t *testing.T) {
 		t.Errorf("TelegramAdminIDs = %v, want [111 222]", cfg.TelegramAdminIDs)
 	}
 
-	// Defaults
 	if cfg.CheckInterval != 30 {
 		t.Errorf("CheckInterval = %d, want 30", cfg.CheckInterval)
 	}
@@ -87,6 +84,9 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	}
 	if cfg.Timezone != "UTC" {
 		t.Errorf("Timezone = %q, want %q", cfg.Timezone, "UTC")
+	}
+	if cfg.Language != "ru" {
+		t.Errorf("Language = %q, want %q", cfg.Language, "ru")
 	}
 	if cfg.TelegramThreadID != 0 {
 		t.Errorf("TelegramThreadID = %d, want 0", cfg.TelegramThreadID)

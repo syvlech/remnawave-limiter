@@ -11,30 +11,24 @@ import (
 )
 
 type Config struct {
-	// API
-	RemnawaveAPIURL   string
-	RemnawaveAPIToken string
-	// Monitoring
-	CheckInterval      int
-	ActiveIPWindow     int
-	Tolerance          int
-	Cooldown           int
-	UserCacheTTL       int
-	DefaultDeviceLimit int
-	// Action
-	ActionMode          string // "manual" or "auto"
-	AutoDisableDuration int    // minutes, 0 = permanent
-	// Telegram
-	TelegramBotToken string
-	TelegramChatID   int64
-	TelegramThreadID int64
-	TelegramAdminIDs []int64
-	// Whitelist
-	WhitelistUserIDs []string
-	// Redis
-	RedisURL string
-	// Timezone
-	Timezone string
+	RemnawaveAPIURL     string
+	RemnawaveAPIToken   string
+	CheckInterval       int
+	ActiveIPWindow      int
+	Tolerance           int
+	Cooldown            int
+	UserCacheTTL        int
+	DefaultDeviceLimit  int
+	ActionMode          string
+	AutoDisableDuration int
+	TelegramBotToken    string
+	TelegramChatID      int64
+	TelegramThreadID    int64
+	TelegramAdminIDs    []int64
+	WhitelistUserIDs    []string
+	RedisURL            string
+	Timezone            string
+	Language            string
 }
 
 func LoadConfig(envPath string) (*Config, error) {
@@ -46,7 +40,6 @@ func LoadConfig(envPath string) (*Config, error) {
 		logrus.Debug("Файл .env не найден, используются переменные окружения")
 	}
 
-	// Parse required fields
 	remnawaveAPIURL := os.Getenv("REMNAWAVE_API_URL")
 	if remnawaveAPIURL == "" {
 		return nil, fmt.Errorf("REMNAWAVE_API_URL обязательный параметр")
@@ -80,7 +73,6 @@ func LoadConfig(envPath string) (*Config, error) {
 		return nil, fmt.Errorf("TELEGRAM_ADMIN_IDS: %v", err)
 	}
 
-	// Parse optional fields
 	telegramThreadID := getEnvInt64("TELEGRAM_THREAD_ID", 0)
 
 	actionMode := getEnv("ACTION_MODE", "manual")
@@ -103,6 +95,7 @@ func LoadConfig(envPath string) (*Config, error) {
 		WhitelistUserIDs:    parseList(getEnv("WHITELIST_USER_IDS", "")),
 		RedisURL:            getEnv("REDIS_URL", "redis://redis:6379"),
 		Timezone:            getEnv("TIMEZONE", "UTC"),
+		Language:            getEnv("LANGUAGE", "ru"),
 	}
 
 	if err := cfg.Validate(); err != nil {

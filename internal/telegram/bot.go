@@ -3,7 +3,11 @@ package telegram
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/http"
+	"net/url"
 	"strings"
+	"time"
 
 	"github.com/mymmrac/telego"
 	tu "github.com/mymmrac/telego/telegoutil"
@@ -14,6 +18,37 @@ import (
 
 type ActionHandler func(ctx context.Context, action, userUUID, userID string) error
 
+func buildProxyHTTPClient(proxyURL string) (*http.Client, error) {
+	u, err := url.Parse(proxyURL)
+	if err != nil {
+		return nil, fmt.Errorf("невозможно разобрать URL %q: %w", proxyURL, err)
+	}
+	transport := &http.Transport{
+		Proxy: http.ProxyURL(u),
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+	return &http.Client{Transport: transport}, nil
+}
+
+func maskProxyURL(proxyURL string) string {
+	u, err := url.Parse(proxyURL)
+	if err != nil {
+		return proxyURL
+	}
+	if u.User != nil {
+		u.User = url.UserPassword(u.User.Username(), "***")
+	}
+	return u.String()
+}
+
 type Bot struct {
 	api      *telego.Bot
 	chatID   int64
@@ -23,8 +58,18 @@ type Bot struct {
 	onAction ActionHandler
 }
 
-func NewBot(token string, chatID, threadID int64, adminIDs []int64, logger *logrus.Logger) (*Bot, error) {
-	bot, err := telego.NewBot(token)
+func NewBot(token string, chatID, threadID int64, adminIDs []int64, proxyURL string, logger *logrus.Logger) (*Bot, error) {
+	opts := []telego.BotOption{}
+	if proxyURL != "" {
+		client, err := buildProxyHTTPClient(proxyURL)
+		if err != nil {
+			return nil, fmt.Errorf("TELEGRAM_PROXY: %w", err)
+		}
+		opts = append(opts, telego.WithHTTPClient(client))
+		logger.WithField("proxy", maskProxyURL(proxyURL)).Info("Telegram бот: используется прокси")
+	}
+
+	bot, err := telego.NewBot(token, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("не удалось создать Telegram бота: %w", err)
 	}

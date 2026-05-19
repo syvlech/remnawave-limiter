@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -28,6 +29,7 @@ type Config struct {
 	TelegramChatID      int64
 	TelegramThreadID    int64
 	TelegramAdminIDs    []int64
+	TelegramProxy       string
 	WhitelistUserIDs    []string
 	RedisURL            string
 	Timezone            string
@@ -37,11 +39,13 @@ type Config struct {
 	WebhookSecret       string
 	SubnetGrouping           bool
 	SubnetPrefixV4           int
+	ASNGrouping              bool
 	ASNDatabasePath          string
 	MaxMindLicenseKey        string
 	MaxMindUpdateInterval    time.Duration
 	ViolationThreshold       int
 	ViolationThresholdWindow int
+	IgnoredNodeUUIDs         []string
 }
 
 func LoadConfig(envPath string) (*Config, error) {
@@ -112,6 +116,7 @@ func LoadConfig(envPath string) (*Config, error) {
 		TelegramChatID:      telegramChatID,
 		TelegramThreadID:    telegramThreadID,
 		TelegramAdminIDs:    telegramAdminIDs,
+		TelegramProxy:       getEnv("TELEGRAM_PROXY", ""),
 		WhitelistUserIDs:    parseList(getEnv("WHITELIST_USER_IDS", "")),
 		RedisURL:            getEnv("REDIS_URL", "redis://redis:6379"),
 		Timezone:            getEnv("TIMEZONE", "UTC"),
@@ -121,11 +126,13 @@ func LoadConfig(envPath string) (*Config, error) {
 		WebhookSecret:       getEnv("WEBHOOK_SECRET", ""),
 		SubnetGrouping:           getEnvBool("SUBNET_GROUPING", false),
 		SubnetPrefixV4:           getEnvInt("SUBNET_PREFIX_V4", 24),
+		ASNGrouping:              getEnvBool("ASN_GROUPING", false),
 		ASNDatabasePath:          getEnv("ASN_DATABASE_PATH", "./geoip/GeoLite2-ASN.mmdb"),
 		MaxMindLicenseKey:        getEnv("MAXMIND_LICENSE_KEY", ""),
 		MaxMindUpdateInterval:    maxmindInterval,
 		ViolationThreshold:       getEnvInt("VIOLATION_THRESHOLD", 1),
 		ViolationThresholdWindow: getEnvInt("VIOLATION_THRESHOLD_WINDOW", 3600),
+		IgnoredNodeUUIDs:         parseLowercaseList(getEnv("IGNORED_NODE_UUIDS", "")),
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -159,6 +166,20 @@ func (cfg *Config) Validate() error {
 	}
 	if cfg.MaxMindUpdateInterval < time.Hour {
 		return fmt.Errorf("MAXMIND_UPDATE_INTERVAL должен быть >= 1h, получено %v", cfg.MaxMindUpdateInterval)
+	}
+	if cfg.TelegramProxy != "" {
+		u, err := url.Parse(cfg.TelegramProxy)
+		if err != nil {
+			return fmt.Errorf("TELEGRAM_PROXY: невозможно разобрать URL %q: %v", cfg.TelegramProxy, err)
+		}
+		switch strings.ToLower(u.Scheme) {
+		case "http", "https", "socks5", "socks5h":
+		default:
+			return fmt.Errorf("TELEGRAM_PROXY: неподдерживаемая схема %q (ожидается http, https или socks5)", u.Scheme)
+		}
+		if u.Host == "" {
+			return fmt.Errorf("TELEGRAM_PROXY: отсутствует host:port в %q", cfg.TelegramProxy)
+		}
 	}
 	return nil
 }
@@ -254,6 +275,21 @@ func parseint64list(s string) ([]int64, error) {
 		result = append(result, val)
 	}
 	return result, nil
+}
+
+func parseLowercaseList(listStr string) []string {
+	if listStr == "" {
+		return []string{}
+	}
+	items := strings.Split(listStr, ",")
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		trimmed := strings.ToLower(strings.TrimSpace(item))
+		if trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
 }
 
 func parseList(listStr string) []string {

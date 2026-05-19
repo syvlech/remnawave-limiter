@@ -4,7 +4,7 @@
 
 Автоматический мониторинг одновременных подключений пользователей с панели Remnawave. Отслеживает IP-адреса со всех нод через API, сравнивает с лимитом устройств каждого пользователя и уведомляет администраторов через Telegram-бота с возможностью мгновенного управления.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
 [English version](README_en.md)
 
@@ -141,10 +141,12 @@ docker compose up -d
 |----------|:---:|----------|
 | `REMNAWAVE_API_URL` | **обязательный** | Адрес панели Remnawave |
 | `REMNAWAVE_API_TOKEN` | **обязательный** | API-токен (генерируется в панели) |
+| `REMNAWAVE_COOKIES` | — | Дополнительная авторизация через cookie. Формат: `key=value` через точку с запятой (например, `cf_clearance=abc; session=xyz`). Используется, если панель закрыта Cloudflare или другим WAF |
 | `TELEGRAM_BOT_TOKEN` | **обязательный** | Токен бота от @BotFather |
 | `TELEGRAM_CHAT_ID` | **обязательный** | ID чата/канала/группы для алертов |
 | `TELEGRAM_ADMIN_IDS` | **обязательный** | ID админов через запятую (только они могут нажимать кнопки) |
 | `TELEGRAM_THREAD_ID` | — | ID треда/топика в супергруппе |
+| `TELEGRAM_PROXY` | — | Прокси для Telegram API, если `api.telegram.org` заблокирован. Схемы: `http`, `https`, `socks5`, `socks5h`. Формат: `scheme://[user:pass@]host:port` (например, `socks5://user:pass@proxy.example.com:1080`) |
 | `CHECK_INTERVAL` | `30` | Интервал проверки (секунды) |
 | `ACTIVE_IP_WINDOW` | `300` | IP считается активным, если `lastSeen` < этого значения (секунды) |
 | `TOLERANCE` | `0` | Допустимое превышение лимита (фиксированное). Если лимит 3 и tolerance 1, реакция при 5+ IP |
@@ -157,11 +159,13 @@ docker compose up -d
 | `WEBHOOK_URL` | — | URL для отправки webhook при нарушениях (POST JSON). Пусто = выключен |
 | `WEBHOOK_SECRET` | — | Секрет для заголовка `X-Webhook-Secret` (опционально) |
 | `WHITELIST_USER_IDS` | — | UUID для исключения из проверки (через запятую) |
+| `IGNORED_NODE_UUIDS` | — | UUID нод через запятую, которые игнорируются при сборе IP-адресов (не учитываются ни в отчётах, ни в принятии решений). Полезно для технических/тестовых нод |
 | `IGNORE_DURATION` | `0` | Длительность действия кнопки «Игнорировать» в минутах. `0` = постоянно (добавление в whitelist навсегда). `> 0` = временный whitelist с автоматическим снятием по TTL |
 | `VIOLATION_THRESHOLD` | `1` | Количество нарушений, необходимое для срабатывания действия. 1 = мгновенная реакция |
 | `VIOLATION_THRESHOLD_WINDOW` | `3600` | Окно в секундах для подсчёта нарушений. Счётчик сбрасывается, если новых нарушений нет в течение этого периода |
 | `SUBNET_GROUPING` | `false` | Группировка IPv4-адресов по подсети `/SUBNET_PREFIX_V4`. При включении считаются уникальные подсети вместо IP — снижает ложные срабатывания от CGNAT. IPv6 считается по-штучно, без агрегации |
 | `SUBNET_PREFIX_V4` | `24` | Длина IPv4-префикса для группировки (8..32). 24 — стандарт; 16 для мобильной аудитории, где IP часто меняется в пределах одной сети оператора. Используется при `SUBNET_GROUPING=true` |
+| `ASN_GROUPING` | `false` | Считать уникальные ASN (провайдеров) вместо IP/подсетей — самый точный сигнал против шаринга подписки. IP без определяемого ASN считается отдельной группой (безопасный fallback). Приоритетнее `SUBNET_GROUPING` при одновременном включении. Требует базу MaxMind ASN |
 | `ASN_DATABASE_PATH` | `./geoip/GeoLite2-ASN.mmdb` | Путь к файлу `GeoLite2-ASN.mmdb`. Директория создаётся автоматически. Переопределяйте только при нестандартной раскладке (шаринг между сервисами, системная директория и т.п.) |
 | `MAXMIND_LICENSE_KEY` | — | Лицензионный ключ MaxMind. Если задан, при старте недостающая база скачивается автоматически, плюс запускается фоновое обновление. Получить: [maxmind.com](https://www.maxmind.com/en/geolite2/signup) |
 | `MAXMIND_UPDATE_INTERVAL` | `168h` | Интервал автоматического обновления базы (минимум `1h`). Применяется только если задан `MAXMIND_LICENSE_KEY` |
@@ -332,4 +336,4 @@ docker compose up -d
 
 ## Лицензия
 
-MIT License — см. [LICENSE](LICENSE)
+GNU General Public License v3.0 — см. [LICENSE](LICENSE)

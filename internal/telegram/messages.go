@@ -11,12 +11,12 @@ import (
 
 const asnOrgMaxLen = 40
 
-func FormatManualAlert(user *api.CachedUser, ips []api.ActiveIP, limit int, violationCount int64, loc *time.Location, subnetGroups int, subnetEnabled bool) string {
+func FormatManualAlert(user *api.CachedUser, ips []api.ActiveIP, limit int, violationCount int64, loc *time.Location, subnetGroups int, subnetEnabled bool, asnGroups int, asnEnabled bool) string {
 	var b strings.Builder
 
 	b.WriteString(i18n.T("alert.manual.title") + "\n\n")
 	b.WriteString(fmt.Sprintf("%s: <code>%s</code>\n", i18n.T("alert.user"), escapeHTML(user.Username)))
-	b.WriteString(formatGroupingLine(limit, subnetGroups, len(ips), countUniqueASN(ips), subnetEnabled))
+	b.WriteString(formatGroupingLine(limit, subnetGroups, len(ips), countUniqueASN(ips), subnetEnabled, asnGroups, asnEnabled))
 	b.WriteString(fmt.Sprintf("%s: %d\n", i18n.T("alert.violations_24h"), violationCount))
 	b.WriteString(fmt.Sprintf("🕐 %s\n", time.Now().In(loc).Format("02.01.2006 15:04:05")))
 
@@ -30,12 +30,12 @@ func FormatManualAlert(user *api.CachedUser, ips []api.ActiveIP, limit int, viol
 	return b.String()
 }
 
-func FormatAutoAlert(user *api.CachedUser, ips []api.ActiveIP, limit, durationMinutes int, violationCount int64, loc *time.Location, subnetGroups int, subnetEnabled bool) string {
+func FormatAutoAlert(user *api.CachedUser, ips []api.ActiveIP, limit, durationMinutes int, violationCount int64, loc *time.Location, subnetGroups int, subnetEnabled bool, asnGroups int, asnEnabled bool) string {
 	var b strings.Builder
 
 	b.WriteString(i18n.T("alert.auto.title") + "\n\n")
 	b.WriteString(fmt.Sprintf("%s: <code>%s</code>\n", i18n.T("alert.user"), escapeHTML(user.Username)))
-	b.WriteString(formatGroupingLine(limit, subnetGroups, len(ips), countUniqueASN(ips), subnetEnabled))
+	b.WriteString(formatGroupingLine(limit, subnetGroups, len(ips), countUniqueASN(ips), subnetEnabled, asnGroups, asnEnabled))
 	b.WriteString(fmt.Sprintf("%s: %d\n", i18n.T("alert.violations_24h"), violationCount))
 
 	if durationMinutes == 0 {
@@ -136,7 +136,7 @@ func FormatDuration(minutes int) string {
 	return fmt.Sprintf("%d %s %d %s %d %s", days, i18n.T("duration.day"), remHours, i18n.T("duration.hour"), mins, i18n.T("duration.min"))
 }
 
-func FormatStartupMessage(version, actionMode string, checkInterval, cooldown, tolerance int, toleranceMultiplier float64, defaultDeviceLimit, autoDisableDuration int, webhookEnabled, subnetGrouping bool, subnetPrefixV4 int, maxmindLoaded bool, violationThreshold, violationThresholdWindow int) string {
+func FormatStartupMessage(version, actionMode string, checkInterval, cooldown, tolerance int, toleranceMultiplier float64, defaultDeviceLimit, autoDisableDuration int, webhookEnabled, subnetGrouping bool, subnetPrefixV4 int, asnGrouping, maxmindLoaded bool, violationThreshold, violationThresholdWindow int) string {
 	var b strings.Builder
 
 	b.WriteString(i18n.T("startup.title") + "\n\n")
@@ -170,12 +170,18 @@ func FormatStartupMessage(version, actionMode string, checkInterval, cooldown, t
 	}
 	b.WriteString(fmt.Sprintf("🔗 %s: %s\n", i18n.T("startup.webhook"), webhookStatus))
 
+	asnStatus := i18n.T("startup.disabled")
+	if asnGrouping {
+		asnStatus = i18n.T("startup.enabled")
+	}
+	b.WriteString(fmt.Sprintf("🛰 %s: %s\n", i18n.T("startup.asn_grouping"), asnStatus))
+
 	subnetStatus := i18n.T("startup.disabled")
 	if subnetGrouping {
 		subnetStatus = i18n.T("startup.enabled")
 	}
 	b.WriteString(fmt.Sprintf("🌐 %s: %s\n", i18n.T("startup.subnet_grouping"), subnetStatus))
-	if subnetGrouping {
+	if subnetGrouping && !asnGrouping {
 		b.WriteString(fmt.Sprintf("  ↳ /%d\n", subnetPrefixV4))
 	}
 
@@ -193,20 +199,26 @@ func FormatStartupMessage(version, actionMode string, checkInterval, cooldown, t
 	return b.String()
 }
 
-func formatGroupingLine(limit, subnetGroups, ipCount, asnCount int, subnetEnabled bool) string {
+func formatGroupingLine(limit, subnetGroups, ipCount, asnCount int, subnetEnabled bool, asnGroups int, asnEnabled bool) string {
 	var base string
-	if subnetEnabled && subnetGroups > 0 && subnetGroups < ipCount {
+	switch {
+	case asnEnabled:
+		base = fmt.Sprintf("%s: %d | %s: %d | %s: %d IP",
+			i18n.T("alert.limit"), limit,
+			i18n.T("alert.asn_groups"), asnGroups,
+			i18n.T("alert.detected_ips"), ipCount)
+	case subnetEnabled && subnetGroups > 0 && subnetGroups < ipCount:
 		base = fmt.Sprintf("%s: %d | %s: %d | %s: %d IP",
 			i18n.T("alert.limit"), limit,
 			i18n.T("alert.subnets"), subnetGroups,
 			i18n.T("alert.detected_ips"), ipCount)
-	} else {
+	default:
 		base = fmt.Sprintf("%s: %d | %s: %d IP",
 			i18n.T("alert.limit"), limit,
 			i18n.T("alert.detected_ips"), ipCount)
 	}
 
-	if asnCount > 0 {
+	if !asnEnabled && asnCount > 0 {
 		base += fmt.Sprintf(" (%d %s)", asnCount, i18n.T("alert.asn_count"))
 	}
 

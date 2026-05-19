@@ -32,7 +32,7 @@ func TestFormatManualAlert(t *testing.T) {
 	}
 	limit := 3
 
-	result := FormatManualAlert(user, ips, limit, 5, loc, 0, false)
+	result := FormatManualAlert(user, ips, limit, 5, loc, 0, false, 0, false)
 
 	checks := []struct {
 		name string
@@ -70,7 +70,7 @@ func TestFormatManualAlert_IPWithoutASN_OmitsASNPart(t *testing.T) {
 	user := &api.CachedUser{UUID: "u", UserID: "1", Username: "u"}
 	ips := []api.ActiveIP{{IP: "10.0.0.1", NodeName: "Local", NodeUUID: "n"}}
 
-	result := FormatManualAlert(user, ips, 1, 1, loc, 0, false)
+	result := FormatManualAlert(user, ips, 1, 1, loc, 0, false, 0, false)
 
 	if !strings.Contains(result, "10.0.0.1</a> (Local)") {
 		t.Errorf("expected IP line without ASN part, got:\n%s", result)
@@ -85,7 +85,7 @@ func TestFormatManualAlert_IPWithASN_IncludesOrgDashFormat(t *testing.T) {
 	user := &api.CachedUser{UUID: "u", UserID: "1", Username: "u"}
 	ips := []api.ActiveIP{{IP: "1.2.3.4", NodeName: "Chicago-1", NodeUUID: "n", ASN: 13335, ASNOrg: "Cloudflare, Inc."}}
 
-	result := FormatManualAlert(user, ips, 1, 1, loc, 0, false)
+	result := FormatManualAlert(user, ips, 1, 1, loc, 0, false, 0, false)
 
 	wantSubstr := "1.2.3.4</a> - Cloudflare, Inc. (Chicago-1)"
 	if !strings.Contains(result, wantSubstr) {
@@ -106,7 +106,7 @@ func TestFormatAutoAlert(t *testing.T) {
 		{IP: "6.6.6.6", NodeName: "Node-UK", NodeUUID: "n6"},
 	}
 
-	result := FormatAutoAlert(user, ips, 2, 30, 3, loc, 0, false)
+	result := FormatAutoAlert(user, ips, 2, 30, 3, loc, 0, false, 0, false)
 
 	checks := []struct{ name, want string }{
 		{"contains auto title", "автоматически отключена"},
@@ -129,7 +129,7 @@ func TestFormatAutoAlert_Permanent(t *testing.T) {
 	user := &api.CachedUser{UUID: "u", UserID: "9", Username: "permuser"}
 	ips := []api.ActiveIP{{IP: "7.7.7.7", NodeName: "Node-JP", NodeUUID: "n7"}}
 
-	result := FormatAutoAlert(user, ips, 1, 0, 1, loc, 0, false)
+	result := FormatAutoAlert(user, ips, 1, 0, 1, loc, 0, false, 0, false)
 
 	if !strings.Contains(result, "Перманентно") {
 		t.Errorf("expected 'Перманентно' for duration=0, got:\n%s", result)
@@ -144,7 +144,7 @@ func TestFormatManualAlert_English(t *testing.T) {
 	user := &api.CachedUser{UUID: "u", UserID: "e", Username: "enuser"}
 	ips := []api.ActiveIP{{IP: "8.8.8.8", NodeName: "Node-US", NodeUUID: "n8"}}
 
-	result := FormatManualAlert(user, ips, 2, 1, loc, 0, false)
+	result := FormatManualAlert(user, ips, 2, 1, loc, 0, false, 0, false)
 
 	checks := []struct{ name, want string }{
 		{"en title", "Device limit exceeded"},
@@ -170,7 +170,7 @@ func TestFormatManualAlert_SubnetGroupingHeader(t *testing.T) {
 		{IP: "2.2.2.2", NodeName: "A", NodeUUID: "n", ASN: 24940},
 	}
 
-	result := FormatManualAlert(user, ips, 3, 1, loc, 2, true)
+	result := FormatManualAlert(user, ips, 3, 1, loc, 2, true, 0, false)
 
 	if !strings.Contains(result, "Подсетей: 2") {
 		t.Errorf("expected 'Подсетей: 2' in header, got:\n%s", result)
@@ -188,7 +188,7 @@ func TestFormatManualAlert_NoASN_OmitsCount(t *testing.T) {
 		{IP: "2.2.2.2", NodeName: "A", NodeUUID: "n"},
 	}
 
-	result := FormatManualAlert(user, ips, 1, 1, loc, 0, false)
+	result := FormatManualAlert(user, ips, 1, 1, loc, 0, false, 0, false)
 
 	if strings.Contains(result, "ASN)") {
 		t.Errorf("ASN count suffix must be omitted when no IP has ASN, got:\n%s", result)
@@ -203,10 +203,32 @@ func TestFormatAutoAlert_ASNCount(t *testing.T) {
 		{IP: "6.6.6.6", NodeName: "Node-UK", NodeUUID: "n6", ASN: 24940},
 	}
 
-	result := FormatAutoAlert(user, ips, 2, 30, 3, loc, 0, false)
+	result := FormatAutoAlert(user, ips, 2, 30, 3, loc, 0, false, 0, false)
 
 	if !strings.Contains(result, "2 IP (2 ASN)") {
 		t.Errorf("expected '2 IP (2 ASN)' in auto alert header, got:\n%s", result)
+	}
+}
+
+func TestFormatManualAlert_ASNGroupingHeader(t *testing.T) {
+	loc := time.UTC
+	user := &api.CachedUser{UUID: "u", UserID: "1", Username: "u"}
+	ips := []api.ActiveIP{
+		{IP: "1.1.1.1", NodeName: "A", NodeUUID: "n", ASN: 13335},
+		{IP: "1.1.1.2", NodeName: "A", NodeUUID: "n", ASN: 13335},
+		{IP: "2.2.2.2", NodeName: "A", NodeUUID: "n", ASN: 24940},
+	}
+
+	result := FormatManualAlert(user, ips, 9, 1, loc, 0, false, 2, true)
+
+	if !strings.Contains(result, "ASN-групп: 2") {
+		t.Errorf("expected 'ASN-групп: 2' in header, got:\n%s", result)
+	}
+	if !strings.Contains(result, "3 IP") {
+		t.Errorf("expected '3 IP' in header, got:\n%s", result)
+	}
+	if strings.Contains(result, "(2 ASN)") {
+		t.Errorf("ASN-mode header must not also append '(N ASN)', got:\n%s", result)
 	}
 }
 
@@ -215,7 +237,7 @@ func TestFormatManualAlert_SubnetGroupingDisabled_NoSubnetLine(t *testing.T) {
 	user := &api.CachedUser{UUID: "u", UserID: "1", Username: "u"}
 	ips := []api.ActiveIP{{IP: "1.1.1.1", NodeName: "A", NodeUUID: "n"}}
 
-	result := FormatManualAlert(user, ips, 1, 1, loc, 0, false)
+	result := FormatManualAlert(user, ips, 1, 1, loc, 0, false, 0, false)
 
 	if strings.Contains(result, "Подсетей") {
 		t.Errorf("subnetEnabled=false must not show 'Подсетей' in header, got:\n%s", result)
@@ -250,7 +272,7 @@ func TestFormatManualAlert_LongASNOrgIsTruncated(t *testing.T) {
 	longOrg := "Amazon Data Services Ireland Limited / AWS EMEA SARL"
 	ips := []api.ActiveIP{{IP: "52.0.0.1", NodeName: "N", NodeUUID: "n", ASN: 16509, ASNOrg: longOrg}}
 
-	result := FormatManualAlert(user, ips, 1, 1, loc, 0, false)
+	result := FormatManualAlert(user, ips, 1, 1, loc, 0, false, 0, false)
 
 	if strings.Contains(result, longOrg) {
 		t.Errorf("full long org must not appear; expected truncated form, got:\n%s", result)

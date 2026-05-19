@@ -87,6 +87,9 @@ func main() {
 	logger.Infof("Режим: %s", cfg.ActionMode)
 	logger.Infof("Интервал проверки: %dс", cfg.CheckInterval)
 	logger.Infof("API: %s", cfg.RemnawaveAPIURL)
+	if len(cfg.IgnoredNodeUUIDs) > 0 {
+		logger.Infof("Игнорируемые ноды (%d): %v", len(cfg.IgnoredNodeUUIDs), cfg.IgnoredNodeUUIDs)
+	}
 
 	redisCache, err := cache.New(cfg.RedisURL)
 	if err != nil {
@@ -113,7 +116,7 @@ func main() {
 		logger.Info("Cookie авторизация включена")
 	}
 
-	bot, err := telegram.NewBot(cfg.TelegramBotToken, cfg.TelegramChatID, cfg.TelegramThreadID, cfg.TelegramAdminIDs, logger)
+	bot, err := telegram.NewBot(cfg.TelegramBotToken, cfg.TelegramChatID, cfg.TelegramThreadID, cfg.TelegramAdminIDs, cfg.TelegramProxy, logger)
 	if err != nil {
 		logger.Fatalf("Ошибка Telegram: %v", err)
 	}
@@ -158,6 +161,13 @@ func main() {
 		return nil
 	})
 
+	if cfg.ASNGrouping && cfg.SubnetGrouping {
+		logger.Warn("Включены оба режима ASN_GROUPING и SUBNET_GROUPING — приоритет у ASN, подсети будут игнорироваться")
+	}
+	if cfg.ASNGrouping && !maxmindLoaded {
+		logger.Warn("ASN_GROUPING включён, но MaxMind ASN база не загружена — все IP без ASN будут считаться отдельными группами")
+	}
+
 	startupMsg := telegram.FormatStartupMessage(
 		version.Version,
 		cfg.ActionMode,
@@ -170,6 +180,7 @@ func main() {
 		cfg.WebhookURL != "",
 		cfg.SubnetGrouping,
 		cfg.SubnetPrefixV4,
+		cfg.ASNGrouping,
 		maxmindLoaded,
 		cfg.ViolationThreshold,
 		cfg.ViolationThresholdWindow,

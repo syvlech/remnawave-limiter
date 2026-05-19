@@ -4,7 +4,7 @@
 
 Automatic monitoring of simultaneous user connections from the Remnawave panel. Tracks IP addresses from all nodes via API, compares against each user's device limit, and notifies administrators via Telegram bot with instant management capabilities.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
 [Русская версия](README.md)
 
@@ -142,10 +142,12 @@ All settings via `.env` file or environment variables.
 |-----------|:---:|-----------|
 | `REMNAWAVE_API_URL` | **required** | Remnawave panel address |
 | `REMNAWAVE_API_TOKEN` | **required** | API token (generated in the panel) |
+| `REMNAWAVE_COOKIES` | — | Additional cookie auth. Format: `key=value` separated by semicolons (e.g. `cf_clearance=abc; session=xyz`). Useful when the panel sits behind Cloudflare or another WAF |
 | `TELEGRAM_BOT_TOKEN` | **required** | Bot token from @BotFather |
 | `TELEGRAM_CHAT_ID` | **required** | Chat/channel/group ID for alerts |
 | `TELEGRAM_ADMIN_IDS` | **required** | Admin IDs separated by commas (only they can press buttons) |
 | `TELEGRAM_THREAD_ID` | — | Thread/topic ID in a supergroup |
+| `TELEGRAM_PROXY` | — | Proxy for the Telegram API when `api.telegram.org` is blocked. Schemes: `http`, `https`, `socks5`, `socks5h`. Format: `scheme://[user:pass@]host:port` (e.g. `socks5://user:pass@proxy.example.com:1080`) |
 | `CHECK_INTERVAL` | `30` | Check interval (seconds) |
 | `ACTIVE_IP_WINDOW` | `300` | IP is considered active if `lastSeen` < this value (seconds) |
 | `TOLERANCE` | `0` | Fixed allowed excess over the limit. If limit is 3 and tolerance is 1, reaction at 5+ IPs |
@@ -158,11 +160,13 @@ All settings via `.env` file or environment variables.
 | `WEBHOOK_URL` | — | URL for sending webhooks on violations (POST JSON). Empty = disabled |
 | `WEBHOOK_SECRET` | — | Secret for `X-Webhook-Secret` header (optional) |
 | `WHITELIST_USER_IDS` | — | UUIDs to exclude from checks (comma-separated) |
+| `IGNORED_NODE_UUIDS` | — | Comma-separated node UUIDs to skip when collecting IPs (not counted in reports or decisions). Useful for technical/test nodes |
 | `IGNORE_DURATION` | `0` | TTL for the "Ignore" button action, in minutes. `0` = permanent (add to whitelist forever). `> 0` = temporary whitelist with automatic removal after TTL |
 | `VIOLATION_THRESHOLD` | `1` | Number of violations required before taking action. 1 = instant reaction |
 | `VIOLATION_THRESHOLD_WINDOW` | `3600` | Time window in seconds for counting violations. Counter resets if no new violations occur within this period |
 | `SUBNET_GROUPING` | `false` | Group IPv4 addresses by `/SUBNET_PREFIX_V4` subnet. When enabled, counts unique subnets instead of IPs — reduces false positives from CGNAT. IPv6 is counted per-IP, no aggregation |
 | `SUBNET_PREFIX_V4` | `24` | IPv4 prefix length for device grouping (8..32). 24 is the default; 16 works well for mobile-heavy audiences where carriers rotate IPs across a wide range. Used when `SUBNET_GROUPING=true` |
+| `ASN_GROUPING` | `false` | Count unique ASNs (providers) instead of IPs/subnets — the strongest signal against subscription sharing. IPs without a resolvable ASN are each counted as a separate group (safe fallback). Takes priority over `SUBNET_GROUPING` when both are enabled. Requires the MaxMind ASN database |
 | `ASN_DATABASE_PATH` | `./geoip/GeoLite2-ASN.mmdb` | Path to the `GeoLite2-ASN.mmdb` file. The directory is created automatically. Override only for non-standard layouts (shared between services, system-wide GeoIP directory, etc.) |
 | `MAXMIND_LICENSE_KEY` | — | MaxMind license key. If set, the database is auto-downloaded on startup if missing and refreshed periodically. Register free at [maxmind.com](https://www.maxmind.com/en/geolite2/signup) |
 | `MAXMIND_UPDATE_INTERVAL` | `168h` | Auto-refresh interval (minimum `1h`). Only applies when `MAXMIND_LICENSE_KEY` is set |
@@ -333,4 +337,4 @@ The limit is taken from the `hwidDeviceLimit` field in the Remnawave panel. Chan
 
 ## License
 
-MIT License — see [LICENSE](LICENSE)
+GNU General Public License v3.0 — see [LICENSE](LICENSE)

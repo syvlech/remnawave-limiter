@@ -16,6 +16,7 @@ import (
 	"github.com/remnawave/limiter/internal/geoip"
 	"github.com/remnawave/limiter/internal/i18n"
 	"github.com/remnawave/limiter/internal/monitor"
+	"github.com/remnawave/limiter/internal/settings"
 	"github.com/remnawave/limiter/internal/telegram"
 	"github.com/remnawave/limiter/internal/version"
 	"github.com/remnawave/limiter/internal/webhook"
@@ -84,13 +85,6 @@ func main() {
 		logger.Info("ASN enrichment отключён: MAXMIND_LICENSE_KEY не задан и файл базы не найден")
 	}
 
-	logger.Infof("Режим: %s", cfg.ActionMode)
-	logger.Infof("Интервал проверки: %dс", cfg.CheckInterval)
-	logger.Infof("API: %s", cfg.RemnawaveAPIURL)
-	if len(cfg.IgnoredNodeUUIDs) > 0 {
-		logger.Infof("Игнорируемые ноды (%d): %v", len(cfg.IgnoredNodeUUIDs), cfg.IgnoredNodeUUIDs)
-	}
-
 	redisCache, err := cache.New(cfg.RedisURL)
 	if err != nil {
 		logger.Fatalf("Ошибка Redis: %v", err)
@@ -104,6 +98,28 @@ func main() {
 		logger.Fatalf("Redis недоступен: %v", err)
 	}
 	logger.Info("Redis подключён")
+
+	appliedOverrides := map[string]string{}
+	if overrides, err := redisCache.GetConfigOverrides(ctx); err != nil {
+		logger.WithError(err).Warn("Не удалось загрузить сохранённые настройки из Redis, использую .env")
+	} else if len(overrides) > 0 {
+		if merged, err := config.LoadConfigWithOverrides("", overrides); err != nil {
+			logger.WithError(err).Error("Сохранённые настройки невалидны, игнорирую их и использую .env")
+		} else {
+			cfg = merged
+			appliedOverrides = overrides
+			logger.Infof("Применены сохранённые настройки из бота: %d параметр(ов)", len(overrides))
+		}
+	}
+
+	cfgProvider := config.NewProvider(cfg)
+
+	logger.Infof("Режим: %s", cfg.ActionMode)
+	logger.Infof("Интервал проверки: %dс", cfg.CheckInterval)
+	logger.Infof("API: %s", cfg.RemnawaveAPIURL)
+	if len(cfg.IgnoredNodeUUIDs) > 0 {
+		logger.Infof("Игнорируемые ноды (%d): %v", len(cfg.IgnoredNodeUUIDs), cfg.IgnoredNodeUUIDs)
+	}
 
 	redisCache.InitWhitelist(ctx, cfg.WhitelistUserIDs)
 
@@ -128,10 +144,14 @@ func main() {
 		logger.Info("Webhook включён")
 	}
 
-	mon, err := monitor.New(cfg, apiClient, redisCache, bot, webhookClient, resolver, logger)
+	mon, err := monitor.New(cfgProvider, apiClient, redisCache, bot, webhookClient, resolver, logger)
 	if err != nil {
 		logger.Fatalf("Ошибка монитора: %v", err)
 	}
+
+	settingsMgr := settings.NewManager(cfgProvider, redisCache, "", appliedOverrides)
+	bot.SetSettingsProvider(settingsMgr)
+	bot.SetStatsHandler(mon.StatsText)
 
 	bot.SetActionHandler(func(ctx context.Context, action, userUUID, userID string) error {
 		switch action {
@@ -143,8 +163,8 @@ func main() {
 			if err := apiClient.DisableUser(ctx, userUUID); err != nil {
 				return err
 			}
-			if cfg.AutoDisableDuration > 0 {
-				duration := time.Duration(cfg.AutoDisableDuration) * time.Minute
+			if dur := cfgProvider.Load().AutoDisableDuration; dur > 0 {
+				duration := time.Duration(dur) * time.Minute
 				if err := redisCache.SetRestoreTimer(ctx, userUUID, duration); err != nil {
 					logger.WithError(err).WithField("uuid", userUUID).Error("Ошибка установки таймера восстановления (manual disable_temp)")
 				}
@@ -155,7 +175,7 @@ func main() {
 		case "ignore":
 			return redisCache.AddToWhitelist(ctx, userID)
 		case "ignore_temp":
-			ttl := time.Duration(cfg.IgnoreDuration) * time.Minute
+			ttl := time.Duration(cfgProvider.Load().IgnoreDuration) * time.Minute
 			return redisCache.AddToWhitelistTemp(ctx, userID, ttl)
 		}
 		return nil
@@ -177,6 +197,7 @@ func main() {
 		cfg.ToleranceMultiplier,
 		cfg.DefaultDeviceLimit,
 		cfg.AutoDisableDuration,
+		cfg.AutoNotifySoft,
 		cfg.WebhookURL != "",
 		cfg.SubnetGrouping,
 		cfg.SubnetPrefixV4,
@@ -185,12 +206,16 @@ func main() {
 		cfg.ViolationThreshold,
 		cfg.ViolationThresholdWindow,
 	)
-	if err := bot.SendMessage(startupMsg); err != nil {
+	if err := bot.SendStartupMessage(startupMsg); err != nil {
 		logger.WithError(err).Warn("Не удалось отправить стартовое сообщение в Telegram")
 	}
 
 	sigCtx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	if cfg.HealthAddr != "" {
+		startHealthServer(sigCtx, cfg.HealthAddr, mon, cfgProvider, logger)
+	}
 
 	if asnDB != nil && cfg.MaxMindLicenseKey != "" {
 		updater := &geoip.Updater{

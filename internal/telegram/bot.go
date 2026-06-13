@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mymmrac/telego"
@@ -17,6 +18,8 @@ import (
 )
 
 type ActionHandler func(ctx context.Context, action, userUUID, userID string) error
+
+type StatsHandler func(ctx context.Context) (string, error)
 
 func buildProxyHTTPClient(proxyURL string) (*http.Client, error) {
 	u, err := url.Parse(proxyURL)
@@ -56,6 +59,11 @@ type Bot struct {
 	adminIDs map[int64]bool
 	logger   *logrus.Logger
 	onAction ActionHandler
+	onStats  StatsHandler
+
+	settings  SettingsProvider
+	pendingMu sync.Mutex
+	pending   map[int64]pendingInput
 }
 
 func NewBot(token string, chatID, threadID int64, adminIDs []int64, proxyURL string, logger *logrus.Logger) (*Bot, error) {
@@ -85,11 +93,16 @@ func NewBot(token string, chatID, threadID int64, adminIDs []int64, proxyURL str
 		threadID: threadID,
 		adminIDs: admins,
 		logger:   logger,
+		pending:  make(map[int64]pendingInput),
 	}, nil
 }
 
 func (b *Bot) SetActionHandler(handler ActionHandler) {
 	b.onAction = handler
+}
+
+func (b *Bot) SetStatsHandler(handler StatsHandler) {
+	b.onStats = handler
 }
 
 func (b *Bot) sendMsg(text string, keyboard *telego.InlineKeyboardMarkup) error {
@@ -155,7 +168,47 @@ func (b *Bot) SendMessage(text string) error {
 	return b.sendMsg(text, nil)
 }
 
+func (b *Bot) SendStartupMessage(text string) error {
+	keyboard := tu.InlineKeyboard(
+		tu.InlineKeyboardRow(
+			tu.InlineKeyboardButton(i18n.T("settings.open")).WithCallbackData("cfg:menu"),
+		),
+	)
+	return b.sendMsg(text, keyboard)
+}
+
+func botCommands() []telego.BotCommand {
+	return []telego.BotCommand{
+		{Command: "settings", Description: i18n.T("command.settings")},
+		{Command: "stats", Description: i18n.T("command.stats")},
+	}
+}
+
+func (b *Bot) RegisterCommands(ctx context.Context) {
+	cmds := botCommands()
+
+	for adminID := range b.adminIDs {
+		if err := b.api.SetMyCommands(ctx, &telego.SetMyCommandsParams{
+			Commands: cmds,
+			Scope:    &telego.BotCommandScopeChat{Type: telego.ScopeTypeChat, ChatID: tu.ID(adminID)},
+		}); err != nil {
+			b.logger.WithError(err).WithField("admin", adminID).Warn("Telegram бот: не удалось зарегистрировать команды для админа")
+		}
+	}
+
+	if b.chatID < 0 {
+		if err := b.api.SetMyCommands(ctx, &telego.SetMyCommandsParams{
+			Commands: cmds,
+			Scope:    &telego.BotCommandScopeChatAdministrators{Type: telego.ScopeTypeChatAdministrators, ChatID: tu.ID(b.chatID)},
+		}); err != nil {
+			b.logger.WithError(err).Warn("Telegram бот: не удалось зарегистрировать команды для админов группы")
+		}
+	}
+}
+
 func (b *Bot) StartPolling(ctx context.Context) {
+	b.RegisterCommands(ctx)
+
 	updates, err := b.api.UpdatesViaLongPolling(ctx, &telego.GetUpdatesParams{
 		Timeout: 30,
 	})
@@ -167,13 +220,47 @@ func (b *Bot) StartPolling(ctx context.Context) {
 	b.logger.Info("Telegram бот: запущен polling")
 
 	for update := range updates {
-		if update.CallbackQuery == nil {
-			continue
+		switch {
+		case update.CallbackQuery != nil:
+			b.handleCallback(ctx, update.CallbackQuery)
+		case update.Message != nil && update.Message.From != nil:
+			b.handleMessage(ctx, update.Message)
 		}
-		b.handleCallback(ctx, update.CallbackQuery)
 	}
 
 	b.logger.Info("Telegram бот: polling остановлен")
+}
+
+func (b *Bot) handleMessage(ctx context.Context, msg *telego.Message) {
+	if !b.adminIDs[msg.From.ID] {
+		return
+	}
+
+	text := strings.TrimSpace(msg.Text)
+
+	switch strings.SplitN(text, "@", 2)[0] {
+	case "/settings":
+		b.handleSettingsCommand(ctx, msg)
+		return
+	case "/stats":
+		b.handleStatsCommand(ctx, msg)
+		return
+	}
+
+	b.handlePendingInput(ctx, msg)
+}
+
+func (b *Bot) handleStatsCommand(ctx context.Context, msg *telego.Message) {
+	if b.onStats == nil {
+		return
+	}
+	text, err := b.onStats(ctx)
+	if err != nil {
+		b.logger.WithError(err).Error("Telegram бот: ошибка получения статистики")
+		b.replyText(ctx, msg.Chat.ID, i18n.T("stats.error"))
+		return
+	}
+	b.replyText(ctx, msg.Chat.ID, text)
 }
 
 func (b *Bot) handleCallback(ctx context.Context, callback *telego.CallbackQuery) {
@@ -184,6 +271,11 @@ func (b *Bot) handleCallback(ctx context.Context, callback *telego.CallbackQuery
 			CallbackQueryID: callback.ID,
 			Text:            i18n.T("callback.no_access"),
 		})
+		return
+	}
+
+	if strings.HasPrefix(callback.Data, "cfg:") {
+		b.handleSettingsCallback(ctx, callback)
 		return
 	}
 
@@ -243,12 +335,12 @@ func (b *Bot) handleCallback(ctx context.Context, callback *telego.CallbackQuery
 	if callback.Message != nil {
 		if msg, ok := callback.Message.(*telego.Message); ok {
 			_, err := b.api.EditMessageText(ctx, &telego.EditMessageTextParams{
-				ChatID:                tu.ID(b.chatID),
-				MessageID:             msg.MessageID,
-				Text:                  newText,
-				ParseMode:             telego.ModeHTML,
-				LinkPreviewOptions:    &telego.LinkPreviewOptions{IsDisabled: true},
-				ReplyMarkup:           emptyMarkup,
+				ChatID:             tu.ID(b.chatID),
+				MessageID:          msg.MessageID,
+				Text:               newText,
+				ParseMode:          telego.ModeHTML,
+				LinkPreviewOptions: &telego.LinkPreviewOptions{IsDisabled: true},
+				ReplyMarkup:        emptyMarkup,
 			})
 			if err != nil {
 				b.logger.WithError(err).Error("Telegram бот: ошибка редактирования сообщения")

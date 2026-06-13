@@ -10,11 +10,24 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+    # Optional liveness probe. Set HEALTH_ADDR=:8080 in .env, then uncomment:
+    # healthcheck:
+    #   test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+    #   interval: 30s
+    #   timeout: 5s
+    #   retries: 3
+    #   start_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   redis:
     image: valkey/valkey:8.1-alpine
     container_name: remnawave-limiter-redis
     restart: unless-stopped
+    command: ["valkey-server", "--appendonly", "yes"]
     volumes:
       - redis-data:/data
     healthcheck:
@@ -22,6 +35,11 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   redis-data:

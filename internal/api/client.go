@@ -14,10 +14,10 @@ import (
 )
 
 const (
-	maxRetries       = 3
-	initialBackoff   = 1 * time.Second
-	jobPollInterval  = 1 * time.Second
-	jobPollMaxTries  = 30
+	maxRetries      = 3
+	initialBackoff  = 1 * time.Second
+	jobPollInterval = 1 * time.Second
+	jobPollMaxTries = 30
 )
 
 type Client struct {
@@ -88,13 +88,13 @@ func (c *Client) logError(args ...interface{}) {
 }
 
 func (c *Client) doRequest(ctx context.Context, method, path string, body interface{}) ([]byte, error) {
-	var reqBody io.Reader
+	var bodyData []byte
 	if body != nil {
 		data, err := json.Marshal(body)
 		if err != nil {
 			return nil, fmt.Errorf("marshal request body: %w", err)
 		}
-		reqBody = bytes.NewReader(data)
+		bodyData = data
 	}
 
 	var lastErr error
@@ -109,11 +109,11 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body interf
 			case <-time.After(backoff):
 			}
 			backoff *= 2
+		}
 
-			if body != nil {
-				data, _ := json.Marshal(body)
-				reqBody = bytes.NewReader(data)
-			}
+		var reqBody io.Reader
+		if bodyData != nil {
+			reqBody = bytes.NewReader(bodyData)
 		}
 
 		req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, reqBody)

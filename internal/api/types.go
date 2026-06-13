@@ -80,11 +80,6 @@ type DropConnectionsResponse struct {
 	} `json:"response"`
 }
 
-type UserIPAggregated struct {
-	UserID    string
-	ActiveIPs []ActiveIP
-}
-
 type ActiveIP struct {
 	IP       string
 	LastSeen time.Time

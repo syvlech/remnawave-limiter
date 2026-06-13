@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/remnawave/limiter/internal/api"
+	"github.com/remnawave/limiter/internal/cache"
 	"github.com/remnawave/limiter/internal/i18n"
 )
 
@@ -48,6 +49,56 @@ func FormatAutoAlert(user *api.CachedUser, ips []api.ActiveIP, limit, durationMi
 
 	b.WriteString(fmt.Sprintf("\n%s:\n", i18n.T("alert.ips_header")))
 	writeIPList(&b, ips)
+
+	return b.String()
+}
+
+func FormatSoftAlert(user *api.CachedUser, ips []api.ActiveIP, limit, banThreshold int, loc *time.Location, subnetGroups int, subnetEnabled bool, asnGroups int, asnEnabled bool) string {
+	var b strings.Builder
+
+	b.WriteString(i18n.T("alert.soft.title") + "\n\n")
+	b.WriteString(fmt.Sprintf("%s: <code>%s</code>\n", i18n.T("alert.user"), escapeHTML(user.Username)))
+	b.WriteString(formatGroupingLine(limit, subnetGroups, len(ips), countUniqueASN(ips), subnetEnabled, asnGroups, asnEnabled))
+	b.WriteString(fmt.Sprintf("%s: %d\n", i18n.T("alert.ban_threshold"), banThreshold))
+	b.WriteString(i18n.T("alert.soft.note") + "\n")
+	b.WriteString(fmt.Sprintf("🕐 %s\n", time.Now().In(loc).Format("02.01.2006 15:04:05")))
+
+	b.WriteString(fmt.Sprintf("\n%s:\n", i18n.T("alert.ips_header")))
+	writeIPList(&b, ips)
+
+	return b.String()
+}
+
+func FormatStats(stats *cache.ViolationStats, loc *time.Location) string {
+	return formatStatsMessage(i18n.T("stats.title"), stats, loc)
+}
+
+func FormatDailyReport(stats *cache.ViolationStats, loc *time.Location) string {
+	return formatStatsMessage(i18n.T("stats.daily_title"), stats, loc)
+}
+
+func formatStatsMessage(title string, stats *cache.ViolationStats, loc *time.Location) string {
+	var b strings.Builder
+
+	b.WriteString(title + "\n\n")
+	b.WriteString(fmt.Sprintf("%s: <b>%d</b>\n", i18n.T("stats.last_24h"), stats.Count24h))
+	b.WriteString(fmt.Sprintf("%s: <b>%d</b>\n", i18n.T("stats.last_week"), stats.CountWeek))
+
+	if len(stats.Top) == 0 {
+		b.WriteString("\n" + i18n.T("stats.empty") + "\n")
+	} else {
+		b.WriteString(fmt.Sprintf("\n%s:\n", i18n.T("stats.top_header")))
+		suffix := i18n.T("stats.count_suffix")
+		for i, v := range stats.Top {
+			name := v.Username
+			if name == "" {
+				name = v.UserID
+			}
+			b.WriteString(fmt.Sprintf("%d. <code>%s</code> — %d %s\n", i+1, escapeHTML(name), v.Count, suffix))
+		}
+	}
+
+	b.WriteString(fmt.Sprintf("\n🕐 %s", time.Now().In(loc).Format("02.01.2006 15:04:05")))
 
 	return b.String()
 }
@@ -136,7 +187,7 @@ func FormatDuration(minutes int) string {
 	return fmt.Sprintf("%d %s %d %s %d %s", days, i18n.T("duration.day"), remHours, i18n.T("duration.hour"), mins, i18n.T("duration.min"))
 }
 
-func FormatStartupMessage(version, actionMode string, checkInterval, cooldown, tolerance int, toleranceMultiplier float64, defaultDeviceLimit, autoDisableDuration int, webhookEnabled, subnetGrouping bool, subnetPrefixV4 int, asnGrouping, maxmindLoaded bool, violationThreshold, violationThresholdWindow int) string {
+func FormatStartupMessage(version, actionMode string, checkInterval, cooldown, tolerance int, toleranceMultiplier float64, defaultDeviceLimit, autoDisableDuration int, autoNotifySoft, webhookEnabled, subnetGrouping bool, subnetPrefixV4 int, asnGrouping, maxmindLoaded bool, violationThreshold, violationThresholdWindow int) string {
 	var b strings.Builder
 
 	b.WriteString(i18n.T("startup.title") + "\n\n")
@@ -162,6 +213,10 @@ func FormatStartupMessage(version, actionMode string, checkInterval, cooldown, t
 
 	if autoDisableDuration > 0 {
 		b.WriteString(fmt.Sprintf("🔒 %s: %s\n", i18n.T("startup.auto_disable"), FormatDuration(autoDisableDuration)))
+	}
+
+	if actionMode == "auto" && autoNotifySoft {
+		b.WriteString(fmt.Sprintf("🔔 %s: %s\n", i18n.T("startup.auto_notify_soft"), i18n.T("startup.enabled")))
 	}
 
 	webhookStatus := i18n.T("startup.disabled")
@@ -195,6 +250,8 @@ func FormatStartupMessage(version, actionMode string, checkInterval, cooldown, t
 		b.WriteString(fmt.Sprintf("🚦 %s: %d\n", i18n.T("startup.violation_threshold"), violationThreshold))
 		b.WriteString(fmt.Sprintf("🕐 %s: %d%s\n", i18n.T("startup.threshold_window"), violationThresholdWindow, i18n.T("startup.sec")))
 	}
+
+	b.WriteString("\n" + i18n.T("startup.settings_hint"))
 
 	return b.String()
 }

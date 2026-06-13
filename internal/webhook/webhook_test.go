@@ -2,7 +2,11 @@ package webhook
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -85,6 +89,47 @@ func TestClient_Send_WithSecret(t *testing.T) {
 
 	if receivedSecret != "my-secret-123" {
 		t.Errorf("expected secret my-secret-123, got %s", receivedSecret)
+	}
+}
+
+func TestClient_Send_WithSecret_SignsBody(t *testing.T) {
+	const secret = "my-secret-123"
+	var receivedSig string
+	var receivedBody []byte
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedSig = r.Header.Get("X-Signature")
+		receivedBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, secret, testLogger())
+	client.Send(context.Background(), testPayload())
+
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write(receivedBody)
+	want := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+
+	if receivedSig != want {
+		t.Errorf("expected X-Signature %s, got %s", want, receivedSig)
+	}
+}
+
+func TestClient_Send_NoSignature_WhenSecretEmpty(t *testing.T) {
+	var hasSig bool
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, hasSig = r.Header["X-Signature"]
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "", testLogger())
+	client.Send(context.Background(), testPayload())
+
+	if hasSig {
+		t.Error("expected no X-Signature header when secret is empty")
 	}
 }
 

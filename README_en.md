@@ -2,7 +2,7 @@
 
 **Centralized device control for Remnawave**
 
-Automatic monitoring of simultaneous user connections from the Remnawave panel. Tracks IP addresses from all nodes via API, compares against each user's device limit, and notifies administrators via Telegram bot with instant management capabilities.
+Monitors simultaneous user connections via the panel API: collects IPs from all nodes, compares them against each user's device limit (`hwidDeviceLimit`), and reacts to violations — via a Telegram bot or automatic subscription blocking.
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
@@ -10,42 +10,15 @@ Automatic monitoring of simultaneous user connections from the Remnawave panel. 
 
 ## Features
 
-**Tracking:**
-- Unique IP addresses over a configurable period
-- Comparison with individual device limits from the panel (`hwidDeviceLimit`)
-- Violations with tolerance support
-- IP aggregation from all nodes — complete connection picture
-
-**Admin notifications:**
-- Limit and number of detected IPs
-- Violation count over the last 24 hours
-- List of all IP addresses with node names
-- Link to user profile
-- Delivery to chat, channel, group, or specific thread
-- Inline buttons for instant actions
-
-**Two operation modes:**
-- **Manual** — alerts with buttons: drop connections, disable subscription, add to whitelist
-- **Automatic** — auto-disable subscription for a set time or permanently, with auto-restore by timer
-
-**Webhook notifications:**
-- HTTP POST with full violation information (JSON)
-- User data, IP addresses, limits, violation counter
-- Optional authorization via secret header (`X-Webhook-Secret`)
-- Works in both modes (manual and auto)
-
-**Violation threshold:**
-- Configurable threshold — action only after N violations within a given period
-- Protection against false positives from brief limit spikes
-- With `VIOLATION_THRESHOLD=1` — instant reaction (default behavior)
-
-**Flexible settings:**
-- Tolerance above the limit
-- Cooldown between alerts
-- Check interval and IP activity window
-- User data caching
-- Timezone selection
-- Interface language (Russian / English)
+- **IP aggregation across all nodes** — full connection picture, compared against the individual limit + tolerance
+- **Two modes:** `manual` — alert with inline buttons (drop, ban, whitelist); `auto` — auto-block with timer-based auto-restore
+- **Violation threshold** — action only after N excesses within a window (protects against false positives)
+- **Grouping** of IPs by subnet (`/24`) or by ASN providers — against CGNAT and sharing
+- **Webhook** (JSON POST) on violations with HMAC signature
+- **Statistics & reports** — `/stats` command (24h/week + top-5 violators) and a daily report to the chat
+- **Runtime settings** via `/settings` — change parameters on the fly without restart (stored in Redis)
+- **Whitelist** of users and IP/CIDR, cooldown, cache, timezone selection, ru/en
+- **Liveness `/healthz`** (optional, via `HEALTH_ADDR`) for Docker/orchestrator healthchecks
 
 ## Architecture
 
@@ -60,49 +33,28 @@ Automatic monitoring of simultaneous user connections from the Remnawave panel. 
                     └──────────────────┘
 ```
 
-- **Single instance** — install alongside the panel or on any server
-- **No node installation required** — everything via the panel API
-- **Docker Compose** — service + Redis in one file
+A single instance alongside the panel or on any server. No node installation needed — everything goes through the API. Docker Compose runs the service + Redis.
 
-### How it works
-
-1. Fetches the list of active nodes via API (`GET /api/nodes`)
-2. Requests user IPs from each node (in parallel)
-3. Aggregates IPs per user across all nodes
-4. Filters by last activity time (`lastSeen`)
-5. Compares active IP count against the limit + tolerance
-6. On violation — increments the threshold counter
-7. If threshold is reached — reacts depending on the mode (alert or auto-block)
+**Check cycle:** node list (`GET /api/nodes`) → parallel IP collection per node → aggregation per user → filter by `lastSeen` → compare against `limit + tolerance` → increment threshold counter → on threshold, react (alert or auto-block).
 
 ## Requirements
 
 - Docker and Docker Compose
-- Remnawave 2.7.0+ panel with an API token
-- Telegram bot (create via [@BotFather](https://t.me/BotFather))
+- Remnawave 2.7.0+ with an API token
+- Telegram bot ([@BotFather](https://t.me/BotFather))
 
 ## Installation
 
-### 1. Create directory
-
 ```bash
 mkdir -p /opt/remnawave-limiter && cd /opt/remnawave-limiter
-```
 
-### 2. Download required files
-
-```bash
 curl -O https://raw.githubusercontent.com/syvlech/remnawave-limiter/master/docker-compose.yml
 curl -O https://raw.githubusercontent.com/syvlech/remnawave-limiter/master/.env.example
+
+cp .env.example .env && nano .env
 ```
 
-### 3. Create configuration
-
-```bash
-cp .env.example .env
-nano .env
-```
-
-Fill in the required parameters:
+Required parameters in `.env`:
 
 ```bash
 REMNAWAVE_API_URL=https://panel.example.com
@@ -113,68 +65,59 @@ TELEGRAM_ADMIN_IDS=123456789
 LANGUAGE=en
 ```
 
-### 4. Start
+Start, logs, and update:
 
 ```bash
-docker compose pull
-docker compose up -d
-```
-
-### Verify
-
-```bash
-docker compose logs -f limiter
-```
-
-### Update
-
-```bash
-cd /opt/remnawave-limiter
-docker compose pull
-docker compose up -d
+docker compose pull && docker compose up -d   # start / update
+docker compose logs -f limiter                # verify
 ```
 
 ## Configuration
 
-All settings via `.env` file or environment variables.
+All settings via `.env` or environment variables.
 
 | Parameter | Default | Description |
 |-----------|:---:|-----------|
 | `REMNAWAVE_API_URL` | **required** | Remnawave panel address |
 | `REMNAWAVE_API_TOKEN` | **required** | API token (generated in the panel) |
-| `REMNAWAVE_COOKIES` | — | Additional cookie auth. Format: `key=value` separated by semicolons (e.g. `cf_clearance=abc; session=xyz`). Useful when the panel sits behind Cloudflare or another WAF |
+| `REMNAWAVE_COOKIES` | — | Additional cookie auth. Format: `key=value` separated by `;` (e.g. `cf_clearance=abc; session=xyz`). For panels behind Cloudflare/WAF |
 | `TELEGRAM_BOT_TOKEN` | **required** | Bot token from @BotFather |
 | `TELEGRAM_CHAT_ID` | **required** | Chat/channel/group ID for alerts |
-| `TELEGRAM_ADMIN_IDS` | **required** | Admin IDs separated by commas (only they can press buttons) |
+| `TELEGRAM_ADMIN_IDS` | **required** | Admin IDs (comma-separated); only they can press buttons |
 | `TELEGRAM_THREAD_ID` | — | Thread/topic ID in a supergroup |
-| `TELEGRAM_PROXY` | — | Proxy for the Telegram API when `api.telegram.org` is blocked. Schemes: `http`, `https`, `socks5`, `socks5h`. Format: `scheme://[user:pass@]host:port` (e.g. `socks5://user:pass@proxy.example.com:1080`) |
-| `CHECK_INTERVAL` | `30` | Check interval (seconds) |
-| `ACTIVE_IP_WINDOW` | `300` | IP is considered active if `lastSeen` < this value (seconds) |
-| `TOLERANCE` | `0` | Fixed allowed excess over the limit. If limit is 3 and tolerance is 1, reaction at 5+ IPs |
-| `TOLERANCE_MULTIPLIER` | `0` | Proportional tolerance multiplier. Effective tolerance = `TOLERANCE + floor(limit × TOLERANCE_MULTIPLIER)`. Set to 0 to disable |
-| `COOLDOWN` | `300` | Cooldown between alerts for one user (seconds) |
-| `USER_CACHE_TTL` | `600` | User data cache TTL (seconds) |
-| `DEFAULT_DEVICE_LIMIT` | `0` | Default limit if user has no `hwidDeviceLimit`. 0 = no limit |
-| `ACTION_MODE` | `manual` | `manual` — alert with buttons, `auto` — auto-disable subscription |
-| `AUTO_DISABLE_DURATION` | `0` | Temporary disable duration in minutes. 0 = permanent only. In `manual` adds a button, in `auto` sets auto-restore time |
-| `WEBHOOK_URL` | — | URL for sending webhooks on violations (POST JSON). Empty = disabled |
-| `WEBHOOK_SECRET` | — | Secret for `X-Webhook-Secret` header (optional) |
+| `TELEGRAM_PROXY` | — | Proxy for the Telegram API. Schemes: `http`, `https`, `socks5`, `socks5h`. Format: `scheme://[user:pass@]host:port` |
+| `CHECK_INTERVAL` | `30` | Check interval (sec) |
+| `ACTIVE_IP_WINDOW` | `300` | IP is active if `lastSeen` < this value (sec) |
+| `TOLERANCE` | `0` | Fixed allowed excess over the limit. Limit 3 + tolerance 1 → reaction at 5+ |
+| `TOLERANCE_MULTIPLIER` | `0` | Proportional tolerance: `TOLERANCE + floor(limit × multiplier)`. 0 disables |
+| `COOLDOWN` | `300` | Cooldown between alerts per user (sec) |
+| `USER_CACHE_TTL` | `600` | User data cache TTL (sec) |
+| `DEFAULT_DEVICE_LIMIT` | `0` | Limit when `hwidDeviceLimit` is unset. 0 = no limit |
+| `ACTION_MODE` | `manual` | `manual` — alert with buttons; `auto` — auto-disable subscription |
+| `AUTO_DISABLE_DURATION` | `0` | Temporary disable duration (min). 0 = permanent. In `manual` adds a button, in `auto` sets auto-restore time |
+| `AUTO_NOTIFY_SOFT` | `false` | `auto` only. Excess **within tolerance** (`limit < devices <= limit+TOLERANCE`) triggers an informational alert with no ban. Ban only above `limit+TOLERANCE` |
+| `WEBHOOK_URL` | — | URL for webhooks on violations (POST JSON). Empty = disabled |
+| `WEBHOOK_SECRET` | — | Webhook secret. Sent in the `X-Webhook-Secret` header and used to HMAC-SHA256 sign the body in `X-Signature: sha256=<hex>` (optional) |
 | `WHITELIST_USER_IDS` | — | UUIDs to exclude from checks (comma-separated) |
-| `IGNORED_NODE_UUIDS` | — | Comma-separated node UUIDs to skip when collecting IPs (not counted in reports or decisions). Useful for technical/test nodes |
-| `IGNORE_DURATION` | `0` | TTL for the "Ignore" button action, in minutes. `0` = permanent (add to whitelist forever). `> 0` = temporary whitelist with automatic removal after TTL |
-| `VIOLATION_THRESHOLD` | `1` | Number of violations required before taking action. 1 = instant reaction |
-| `VIOLATION_THRESHOLD_WINDOW` | `3600` | Time window in seconds for counting violations. Counter resets if no new violations occur within this period |
-| `SUBNET_GROUPING` | `false` | Group IPv4 addresses by `/SUBNET_PREFIX_V4` subnet. When enabled, counts unique subnets instead of IPs — reduces false positives from CGNAT. IPv6 is counted per-IP, no aggregation |
-| `SUBNET_PREFIX_V4` | `24` | IPv4 prefix length for device grouping (8..32). 24 is the default; 16 works well for mobile-heavy audiences where carriers rotate IPs across a wide range. Used when `SUBNET_GROUPING=true` |
-| `ASN_GROUPING` | `false` | Count unique ASNs (providers) instead of IPs/subnets — the strongest signal against subscription sharing. IPs without a resolvable ASN are each counted as a separate group (safe fallback). Takes priority over `SUBNET_GROUPING` when both are enabled. Requires the MaxMind ASN database |
-| `ASN_DATABASE_PATH` | `./geoip/GeoLite2-ASN.mmdb` | Path to the `GeoLite2-ASN.mmdb` file. The directory is created automatically. Override only for non-standard layouts (shared between services, system-wide GeoIP directory, etc.) |
-| `MAXMIND_LICENSE_KEY` | — | MaxMind license key. If set, the database is auto-downloaded on startup if missing and refreshed periodically. Register free at [maxmind.com](https://www.maxmind.com/en/geolite2/signup) |
-| `MAXMIND_UPDATE_INTERVAL` | `168h` | Auto-refresh interval (minimum `1h`). Only applies when `MAXMIND_LICENSE_KEY` is set |
-
-**ASN info in alerts.** When the MaxMind GeoLite2-ASN database is available (either the file already exists or `MAXMIND_LICENSE_KEY` is set), each IP in the Telegram alert and webhook payload is annotated with the provider name, e.g. `• 91.107.96.11 - Hetzner Online GmbH (Chicago-1)`. The ASN is for display only and never influences the device-limit decision — decisions use raw unique IPs or unique IPv4 subnets (when `SUBNET_GROUPING=true`). Additionally, the alert header shows the unique ASN count next to the IP count: `Detected: 4 IP (3 ASN)`. When no IP is resolved (MaxMind not set up), the suffix is omitted.
+| `IGNORED_NODE_UUIDS` | — | Node UUIDs skipped during IP collection (not in reports or decisions). For technical/test nodes |
+| `IP_WHITELIST` | — | IPs and/or CIDR subnets (comma-separated) excluded from counting. Drops node/bridge/relay IPs. IPv4/IPv6. Example: `203.0.113.5,10.0.0.0/8,2001:db8::/32` |
+| `IGNORE_DURATION` | `0` | TTL of the "Ignore" button action (min). `0` = permanent. `> 0` = temporary whitelist with TTL |
+| `VIOLATION_THRESHOLD` | `1` | Violations required before action. 1 = instant reaction |
+| `VIOLATION_THRESHOLD_WINDOW` | `3600` | Violation counting window (sec). Counter resets if no new violations occur within it |
+| `SUBNET_GROUPING` | `false` | Group IPv4 by `/SUBNET_PREFIX_V4` — counts subnets instead of IPs (reduces CGNAT false positives). IPv6 is per-IP |
+| `SUBNET_PREFIX_V4` | `24` | IPv4 prefix length (8..32). 24 is standard; 16 suits mobile-heavy audiences. When `SUBNET_GROUPING=true` |
+| `ASN_GROUPING` | `false` | Count unique ASN providers instead of IPs/subnets — strongest signal against sharing. IPs without ASN are a separate group. Takes priority over `SUBNET_GROUPING`. Requires the MaxMind ASN database |
+| `ASN_DATABASE_PATH` | `./geoip/GeoLite2-ASN.mmdb` | Path to `GeoLite2-ASN.mmdb`. Directory is created automatically. Override only for non-standard layouts |
+| `MAXMIND_LICENSE_KEY` | — | MaxMind key. If set, the missing database is downloaded on startup + refreshed in the background. [Register](https://www.maxmind.com/en/geolite2/signup) |
+| `MAXMIND_UPDATE_INTERVAL` | `168h` | Auto-refresh interval (min `1h`). Only when `MAXMIND_LICENSE_KEY` is set |
 | `REDIS_URL` | `redis://redis:6379` | Redis address |
 | `TIMEZONE` | `UTC` | Timezone for alert timestamps (e.g. `Europe/Moscow`) |
 | `LANGUAGE` | `ru` | Interface language: `ru` or `en` |
+| `DAILY_REPORT` | `false` | Daily violation report to the chat (top violators + counts). Toggleable at runtime via `/settings` |
+| `DAILY_REPORT_TIME` | `09:00` | Local time to send the report (`HH:MM`, in `TIMEZONE`). Restart required to change |
+| `HEALTH_ADDR` | — | Address of the HTTP liveness endpoint `/healthz` (e.g. `:8080`). Empty = disabled |
+
+**ASN in alerts.** When the MaxMind database is available, each IP in alerts and webhooks is annotated with the provider (`• 91.107.96.11 - Hetzner Online GmbH (Chicago-1)`), and the header shows the unique ASN count (`Detected: 4 IP (3 ASN)`). It never affects the limiting logic — decisions use IP/subnet/ASN counts only.
 
 ## Limit logic
 
@@ -186,33 +129,39 @@ All settings via `.env` file or environment variables.
 
 ## Violation threshold
 
-By default (`VIOLATION_THRESHOLD=1`) the limiter reacts to every detected violation. When the threshold is increased, the action (alert or auto-block) is only triggered after the required number of violations accumulates within the time window.
+With `VIOLATION_THRESHOLD=1` (default) the limiter reacts to every excess. With a higher value, action runs only after N violations accumulate within `VIOLATION_THRESHOLD_WINDOW`: excess → cooldown check → counter increment (TTL = window) → on threshold, action + counter reset. If more than the window passes between violations, the counter resets.
 
-### How it works
+Example with `VIOLATION_THRESHOLD=3`, `VIOLATION_THRESHOLD_WINDOW=3600`:
 
-1. Limit exceeded → cooldown is checked
-2. Threshold counter is incremented (TTL = `VIOLATION_THRESHOLD_WINDOW`)
-3. If counter < `VIOLATION_THRESHOLD` → logged, no action taken
-4. If counter >= `VIOLATION_THRESHOLD` → action is triggered, counter resets
-
-### Example
-
-With `VIOLATION_THRESHOLD=3`, `VIOLATION_THRESHOLD_WINDOW=3600`, `COOLDOWN=300`:
-
-| Time | Event | Counter | Action |
-|:---:|-------|:---:|--------|
-| 12:00 | Violation | 1/3 | Logged, no action |
-| 12:05 | Violation | 2/3 | Logged, no action |
-| 12:10 | Violation | 3/3 | Alert/block, counter reset |
-| 12:15 | Violation | 1/3 | Logged, no action |
-
-If more than `VIOLATION_THRESHOLD_WINDOW` seconds pass between violations, the counter resets automatically.
+| Time | Counter | Action |
+|:---:|:---:|--------|
+| 12:00 | 1/3 | Logged, no action |
+| 12:05 | 2/3 | Logged, no action |
+| 12:10 | 3/3 | Alert/block, reset |
+| 12:15 | 1/3 | Logged, no action |
 
 ## Telegram bot
 
+### Commands
+
+Available to admins from `TELEGRAM_ADMIN_IDS` only. Registered in the bot's command menu automatically on startup.
+
+| Command | What it does |
+|---------|--------------|
+| `/settings` | Interactive runtime-settings menu. Changes safe parameters on the fly (no restart); values are stored in Redis and survive restarts. See the "Runtime settings" section below |
+| `/stats` | Violation statistics: counts for the last 24 hours and last week + top-5 violators of the week by violation count |
+
+### Runtime settings (`/settings`)
+
+Source priority: **Redis override > `.env` / environment > defaults**. Changes apply on the fly (e.g. `CHECK_INTERVAL` resets the ticker). Structural and secret keys (API URL/token, all `TELEGRAM_*`, `REDIS_URL`, `TIMEZONE`, `LANGUAGE`, `WEBHOOK_*`, `IP_WHITELIST`, `IGNORED_NODE_UUIDS`, `MAXMIND_*`, `DAILY_REPORT_TIME`, `HEALTH_ADDR`) require an `.env` change + restart. "Reset to .env" (per key or all) removes the override.
+
+### Daily report (`DAILY_REPORT=true`)
+
+Once a day at `DAILY_REPORT_TIME` (local time in `TIMEZONE`) the bot posts the same report as `/stats` (24h/week counts + top-5) to the chat. Only real post-threshold violations (`VIOLATION_THRESHOLD`) are counted; soft warnings are excluded from statistics. `DAILY_REPORT` is toggleable at runtime via `/settings`; `DAILY_REPORT_TIME` requires a restart.
+
 ### Manual mode (`ACTION_MODE=manual`)
 
-When the limit is exceeded, the bot sends an alert with buttons:
+On excess the bot sends an alert with buttons:
 
 ```
 ⚠️ Device limit exceeded
@@ -224,7 +173,6 @@ When the limit is exceeded, the bot sends an alert with buttons:
 
 📍 IP addresses:
   • 10.0.1.10 (node: node-1)
-  • 10.0.2.20 (node: node-1)
   • 10.0.3.30 (node: node-2)
 
 🔗 Profile
@@ -237,21 +185,27 @@ When the limit is exceeded, the bot sends an alert with buttons:
 | Button | Action |
 |--------|--------|
 | Drop connections | Reset active user connections via API |
-| Disable permanently | Permanently deactivate subscription via API |
-| Disable for N min | Temporarily deactivate with auto-restore by timer (shown when `AUTO_DISABLE_DURATION > 0`) |
-| Ignore | Add to whitelist. If `IGNORE_DURATION > 0` — temporarily (button shows duration), otherwise permanently |
+| Disable permanently | Permanently deactivate the subscription |
+| Disable for N min | Temporary deactivation with auto-restore (when `AUTO_DISABLE_DURATION > 0`) |
+| Ignore | Add to whitelist: temporary if `IGNORE_DURATION > 0`, otherwise permanent |
 
 ### Automatic mode (`ACTION_MODE=auto`)
 
-The subscription is disabled automatically, the bot sends an informational alert with an "Enable subscription" button.
+The subscription is disabled automatically; the bot sends an informational alert with an "Enable subscription" button. With `AUTO_DISABLE_DURATION > 0`, the subscription is restored by timer.
 
-If `AUTO_DISABLE_DURATION > 0` — the subscription is automatically restored by timer.
+**Within-tolerance alerts (`AUTO_NOTIFY_SOFT=true`).** When you want to ban only on a noticeable excess (`TOLERANCE`) but still know about users who already crossed the HWID limit:
+
+| Device count | Action |
+|--------------|--------|
+| `devices <= limit` | silence |
+| `limit < devices <= limit+TOLERANCE` | 🔔 informational alert, **no ban** |
+| `devices > limit+TOLERANCE` | 🔒 ban + alert |
+
+Soft warnings use a separate cooldown (`cooldown:soft:`), do **not** increment the 24h violation counter, are **not** counted toward `VIOLATION_THRESHOLD`, and send a webhook with the `soft_violation_detected` event.
 
 ## Webhook
 
-When a violation is detected, the limiter can send an HTTP POST request to the specified URL with full event information. The webhook works in both modes (manual and auto).
-
-To enable, set `WEBHOOK_URL` in `.env`. Optionally, set `WEBHOOK_SECRET` — it will be sent in the `X-Webhook-Secret` header for verification on the receiving end.
+On a violation the limiter can send an HTTP POST to `WEBHOOK_URL` (works in both modes). When `WEBHOOK_SECRET` is set, two headers are added: `X-Webhook-Secret` (the raw secret, for a simple match) and `X-Signature: sha256=<hex>` — an HMAC-SHA256 of the request body with that secret (for integrity / tamper protection). Delivery is asynchronous (fire-and-forget) and does not block the monitoring loop.
 
 **Example payload:**
 
@@ -269,18 +223,8 @@ To enable, set `WEBHOOK_URL` in `.env`. Optionally, set `WEBHOOK_SECRET` — it 
   },
   "violation": {
     "ips": [
-      {
-        "ip": "1.2.3.4",
-        "node_name": "DE-1",
-        "node_uuid": "node-uuid-1",
-        "last_seen": "2025-11-29T12:00:00Z"
-      },
-      {
-        "ip": "5.6.7.8",
-        "node_name": "US-1",
-        "node_uuid": "node-uuid-2",
-        "last_seen": "2025-11-29T12:01:00Z"
-      }
+      { "ip": "1.2.3.4", "node_name": "DE-1", "node_uuid": "node-uuid-1", "last_seen": "2025-11-29T12:00:00Z" },
+      { "ip": "5.6.7.8", "node_name": "US-1", "node_uuid": "node-uuid-2", "last_seen": "2025-11-29T12:01:00Z" }
     ],
     "ip_count": 5,
     "device_limit": 3,
@@ -288,53 +232,33 @@ To enable, set `WEBHOOK_URL` in `.env`. Optionally, set `WEBHOOK_SECRET` — it 
     "effective_limit": 4,
     "violation_count_24h": 3
   },
-  "action": {
-    "auto_disable_duration_min": 10
-  },
+  "action": { "auto_disable_duration_min": 10 },
   "timestamp": "2025-11-29T12:05:00Z"
 }
 ```
 
 | Field | Description |
 |-------|-------------|
-| `event` | Always `violation_detected` |
-| `action_mode` | Operation mode: `manual` or `auto` |
+| `event` | `violation_detected` on a ban; `soft_violation_detected` for a within-tolerance soft warning (`AUTO_NOTIFY_SOFT`) |
+| `action_mode` | `manual` or `auto` |
 | `user` | User data (UUID, username, email, telegram_id, subscription_url) |
-| `violation.ips` | List of active IPs with node name and last activity time |
+| `violation.ips` | Active IPs with node name and last activity time |
 | `violation.ip_count` | Number of unique IPs |
-| `violation.device_limit` | User's device limit |
-| `violation.tolerance` | Tolerance value from config |
-| `violation.effective_limit` | Effective limit (device_limit + tolerance) |
-| `violation.violation_count_24h` | Number of violations in the last 24 hours |
+| `violation.device_limit` / `tolerance` / `effective_limit` | Limit, tolerance, and effective limit (`device_limit + tolerance`) |
+| `violation.violation_count_24h` | Violations in the last 24 hours |
 | `action.auto_disable_duration_min` | Disable duration in minutes (0 = permanent) |
-| `timestamp` | Violation detection time (ISO 8601) |
+| `timestamp` | Detection time (ISO 8601) |
 
 ## FAQ
 
-### How to find my Telegram Chat ID?
+**How to find my Telegram Chat ID?** Add [@userinfobot](https://t.me/userinfobot) and send `/start`. For a group/channel — [@getidsbot](https://t.me/getidsbot).
 
-Add [@userinfobot](https://t.me/userinfobot) and send `/start`. For a group/channel — add the bot to the group and use the API or [@getidsbot](https://t.me/getidsbot).
+**What if the panel API is unavailable?** The service logs an error, skips the cycle, and retries after `CHECK_INTERVAL`. API requests retry up to 3 times with exponential backoff.
 
-### What happens if the panel API is unavailable?
+**Can I use Redis from Remnawave?** You can, but it's not recommended — the project runs its own Redis. For an existing one, set `REDIS_URL`.
 
-The service logs an error, skips the current check cycle, and retries after `CHECK_INTERVAL` seconds. API requests are automatically retried up to 3 times with exponential backoff.
+**How to change a user's limit?** Via the `hwidDeviceLimit` field in the user's subscription settings in the Remnawave panel.
 
-### Can I use Redis from Remnawave?
+## Support & License
 
-You can, but it's not recommended. The project runs its own Redis in Docker Compose. If you want to use an existing one — specify its address in `REDIS_URL`.
-
-### How to add a user to the whitelist via the bot?
-
-Press the "Ignore" button in an alert. The user will be added to the whitelist in Redis and will no longer be checked. The whitelist persists across restarts. If `IGNORE_DURATION > 0` is set, the ignore is only in effect for that time (in minutes), and after the TTL expires the user will be checked again.
-
-### How to change the limit for a specific user?
-
-The limit is taken from the `hwidDeviceLimit` field in the Remnawave panel. Change it in the user's subscription settings.
-
-## Support
-
-- **Issues**: [GitHub Issues](https://github.com/syvlech/remnawave-limiter/issues)
-
-## License
-
-GNU General Public License v3.0 — see [LICENSE](LICENSE)
+[GitHub Issues](https://github.com/syvlech/remnawave-limiter/issues) · GNU GPL v3.0 — see [LICENSE](LICENSE)

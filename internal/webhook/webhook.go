@@ -3,6 +3,9 @@ package webhook
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"time"
@@ -44,6 +47,9 @@ func (c *Client) Send(ctx context.Context, payload *Payload) {
 	req.Header.Set("Content-Type", "application/json")
 	if c.secret != "" {
 		req.Header.Set("X-Webhook-Secret", c.secret)
+		mac := hmac.New(sha256.New, []byte(c.secret))
+		mac.Write(data)
+		req.Header.Set("X-Signature", "sha256="+hex.EncodeToString(mac.Sum(nil)))
 	}
 
 	resp, err := c.httpClient.Do(req)

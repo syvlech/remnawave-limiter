@@ -3,12 +3,12 @@ package webhook
 import "time"
 
 type Payload struct {
-	Event      string             `json:"event"`
-	ActionMode string             `json:"action_mode"`
-	User       UserPayload        `json:"user"`
-	Violation  ViolationPayload   `json:"violation"`
-	Action     ActionPayload      `json:"action"`
-	Timestamp  time.Time          `json:"timestamp"`
+	Event      string           `json:"event"`
+	ActionMode string           `json:"action_mode"`
+	User       UserPayload      `json:"user"`
+	Violation  ViolationPayload `json:"violation"`
+	Action     ActionPayload    `json:"action"`
+	Timestamp  time.Time        `json:"timestamp"`
 }
 
 type UserPayload struct {

@@ -242,7 +242,6 @@ func TestCache_WhitelistTemp(t *testing.T) {
 		t.Fatal("expected whitelisted after AddToWhitelistTemp")
 	}
 
-	// Пользователя нет в постоянном set — только во временном ключе
 	inSet, err := c.client.SIsMember(ctx, keyWhitelist, "user-temp").Result()
 	if err != nil {
 		t.Fatalf("SIsMember error: %v", err)
@@ -300,7 +299,6 @@ func TestCache_Whitelist_PermanentAndTempIndependent(t *testing.T) {
 		}
 	}
 
-	// Удаление из постоянного set не должно влиять на временный ключ
 	if err := c.RemoveFromWhitelist(ctx, "temp-user"); err != nil {
 		t.Fatalf("RemoveFromWhitelist error: %v", err)
 	}

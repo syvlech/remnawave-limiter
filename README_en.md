@@ -81,6 +81,7 @@ All settings via `.env` or environment variables.
 | `REMNAWAVE_API_URL` | **required** | Remnawave panel address |
 | `REMNAWAVE_API_TOKEN` | **required** | API token (generated in the panel) |
 | `REMNAWAVE_COOKIES` | — | Additional cookie auth. Format: `key=value` separated by `;` (e.g. `cf_clearance=abc; session=xyz`). For panels behind Cloudflare/WAF |
+| `REMNAWAVE_HEADERS` | — | Additional HTTP headers sent with every API request. Format: `Name: Value` separated by `;` (e.g. `X-Api-Key: secret123; X-Custom-Header: value`). For panels behind a proxy/Cloudflare/protection |
 | `TELEGRAM_BOT_TOKEN` | **required** | Bot token from @BotFather |
 | `TELEGRAM_CHAT_ID` | **required** | Chat/channel/group ID for alerts |
 | `TELEGRAM_ADMIN_IDS` | **required** | Admin IDs (comma-separated); only they can press buttons |

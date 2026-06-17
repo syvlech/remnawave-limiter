@@ -26,6 +26,7 @@ type Client struct {
 	httpClient *http.Client
 	logger     *logrus.Logger
 	cookies    []*http.Cookie
+	headers    map[string]string
 }
 
 func NewClient(baseURL, token string) *Client {
@@ -44,6 +45,37 @@ func (c *Client) SetLogger(logger *logrus.Logger) {
 
 func (c *Client) SetCookies(cookies []*http.Cookie) {
 	c.cookies = cookies
+}
+
+func (c *Client) SetHeaders(headers map[string]string) {
+	c.headers = headers
+}
+
+func ParseHeaders(headerStr string) map[string]string {
+	if headerStr == "" {
+		return nil
+	}
+
+	headers := make(map[string]string)
+	for _, part := range strings.Split(headerStr, ";") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		kv := strings.SplitN(part, ":", 2)
+		if len(kv) != 2 {
+			continue
+		}
+		name := strings.TrimSpace(kv[0])
+		if name == "" {
+			continue
+		}
+		headers[name] = strings.TrimSpace(kv[1])
+	}
+	if len(headers) == 0 {
+		return nil
+	}
+	return headers
 }
 
 func ParseCookies(cookieStr string) []*http.Cookie {
@@ -122,6 +154,10 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body interf
 		}
 		req.Header.Set("Authorization", "Bearer "+c.token)
 		req.Header.Set("Content-Type", "application/json")
+
+		for name, value := range c.headers {
+			req.Header.Set(name, value)
+		}
 
 		for _, cookie := range c.cookies {
 			req.AddCookie(cookie)

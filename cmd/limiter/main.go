@@ -132,6 +132,12 @@ func main() {
 		logger.Info("Cookie авторизация включена")
 	}
 
+	if cfg.RemnawaveHeaders != "" {
+		headers := api.ParseHeaders(cfg.RemnawaveHeaders)
+		apiClient.SetHeaders(headers)
+		logger.Infof("Кастомные заголовки включены (%d)", len(headers))
+	}
+
 	bot, err := telegram.NewBot(cfg.TelegramBotToken, cfg.TelegramChatID, cfg.TelegramThreadID, cfg.TelegramAdminIDs, cfg.TelegramProxy, logger)
 	if err != nil {
 		logger.Fatalf("Ошибка Telegram: %v", err)

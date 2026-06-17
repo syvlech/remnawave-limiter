@@ -38,6 +38,7 @@ type Config struct {
 	Timezone                 string
 	Language                 string
 	RemnawaveCookies         string
+	RemnawaveHeaders         string
 	WebhookURL               string
 	WebhookSecret            string
 	SubnetGrouping           bool
@@ -136,6 +137,7 @@ func LoadConfigWithOverrides(envPath string, overrides map[string]string) (*Conf
 		Timezone:                 l.getEnv("TIMEZONE", "UTC"),
 		Language:                 l.getEnv("LANGUAGE", "ru"),
 		RemnawaveCookies:         l.getEnv("REMNAWAVE_COOKIES", ""),
+		RemnawaveHeaders:         l.getEnv("REMNAWAVE_HEADERS", ""),
 		WebhookURL:               l.getEnv("WEBHOOK_URL", ""),
 		WebhookSecret:            l.getEnv("WEBHOOK_SECRET", ""),
 		SubnetGrouping:           l.getEnvBool("SUBNET_GROUPING", false),

@@ -80,6 +80,7 @@ docker compose logs -f limiter                # проверка
 | `REMNAWAVE_API_URL` | **обязательный** | Адрес панели Remnawave |
 | `REMNAWAVE_API_TOKEN` | **обязательный** | API-токен (генерируется в панели) |
 | `REMNAWAVE_COOKIES` | — | Доп. авторизация через cookie. Формат: `key=value` через `;` (напр. `cf_clearance=abc; session=xyz`). Для панелей за Cloudflare/WAF |
+| `REMNAWAVE_HEADERS` | — | Доп. HTTP-заголовки для каждого запроса к API. Формат: `Name: Value` через `;` (напр. `X-Api-Key: secret123; X-Custom-Header: value`). Для панелей за прокси/Cloudflare/защитой |
 | `TELEGRAM_BOT_TOKEN` | **обязательный** | Токен бота от @BotFather |
 | `TELEGRAM_CHAT_ID` | **обязательный** | ID чата/канала/группы для алертов |
 | `TELEGRAM_ADMIN_IDS` | **обязательный** | ID админов через запятую (только они нажимают кнопки) |

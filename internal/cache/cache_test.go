@@ -374,3 +374,154 @@ func TestCache_Whitelist_PermanentAndTempIndependent(t *testing.T) {
 		t.Fatal("RemoveFromWhitelist должен удалять только постоянный, временный остаётся")
 	}
 }
+
+// Раньше TTL переустанавливался после каждого INCR, из-за чего окно
+// становилось скользящим: у постоянного нарушителя счётчик за 24ч не
+// истекал никогда и рос неограниченно.
+func TestCache_ViolationCount_WindowDoesNotSlide(t *testing.T) {
+	c := setupTestCache(t)
+	ctx := context.Background()
+
+	const userID int64 = 777
+	key := prefixViolationCount + formatUserID(userID)
+
+	if _, err := c.IncrViolationCount(ctx, userID); err != nil {
+		t.Fatalf("IncrViolationCount error: %v", err)
+	}
+	first, err := c.client.PTTL(ctx, key).Result()
+	if err != nil {
+		t.Fatalf("PTTL error: %v", err)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+
+	count, err := c.IncrViolationCount(ctx, userID)
+	if err != nil {
+		t.Fatalf("IncrViolationCount error: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("count = %d, want 2", count)
+	}
+
+	second, err := c.client.PTTL(ctx, key).Result()
+	if err != nil {
+		t.Fatalf("PTTL error: %v", err)
+	}
+	if second >= first {
+		t.Errorf("TTL продлился при повторном инкременте: было %v, стало %v", first, second)
+	}
+}
+
+func TestCache_ThresholdCount_UsesConfiguredWindow(t *testing.T) {
+	c := setupTestCache(t)
+	ctx := context.Background()
+
+	const userID int64 = 778
+	key := prefixViolationThreshold + formatUserID(userID)
+
+	if _, err := c.IncrThresholdCount(ctx, userID, 90*time.Second); err != nil {
+		t.Fatalf("IncrThresholdCount error: %v", err)
+	}
+
+	ttl, err := c.client.TTL(ctx, key).Result()
+	if err != nil {
+		t.Fatalf("TTL error: %v", err)
+	}
+	if ttl <= 0 || ttl > 90*time.Second {
+		t.Errorf("TTL = %v, want 0 < ttl <= 90s", ttl)
+	}
+}
+
+// Ключ, оставшийся без TTL от предыдущих версий, должен получить его
+// на следующем инкременте, а не жить в Redis вечно.
+func TestCache_Counter_HealsKeyWithoutTTL(t *testing.T) {
+	c := setupTestCache(t)
+	ctx := context.Background()
+
+	const userID int64 = 779
+	key := prefixViolationCount + formatUserID(userID)
+
+	if err := c.client.Set(ctx, key, 5, 0).Err(); err != nil {
+		t.Fatalf("Set error: %v", err)
+	}
+	if ttl := c.client.TTL(ctx, key).Val(); ttl >= 0 {
+		t.Fatalf("подготовка теста: ожидался ключ без TTL, получено %v", ttl)
+	}
+
+	count, err := c.IncrViolationCount(ctx, userID)
+	if err != nil {
+		t.Fatalf("IncrViolationCount error: %v", err)
+	}
+	if count != 6 {
+		t.Errorf("count = %d, want 6", count)
+	}
+	if ttl := c.client.TTL(ctx, key).Val(); ttl <= 0 {
+		t.Errorf("TTL не выставлен для ключа без срока жизни: %v", ttl)
+	}
+}
+
+func TestCache_RestoreAttempts(t *testing.T) {
+	c := setupTestCache(t)
+	ctx := context.Background()
+
+	const userID int64 = 780
+
+	for want := int64(1); want <= 3; want++ {
+		got, err := c.IncrRestoreAttempts(ctx, userID)
+		if err != nil {
+			t.Fatalf("IncrRestoreAttempts error: %v", err)
+		}
+		if got != want {
+			t.Errorf("attempt = %d, want %d", got, want)
+		}
+	}
+
+	if err := c.ResetRestoreAttempts(ctx, userID); err != nil {
+		t.Fatalf("ResetRestoreAttempts error: %v", err)
+	}
+
+	got, err := c.IncrRestoreAttempts(ctx, userID)
+	if err != nil {
+		t.Fatalf("IncrRestoreAttempts error: %v", err)
+	}
+	if got != 1 {
+		t.Errorf("после сброса attempt = %d, want 1", got)
+	}
+}
+
+// Истёкшие таймеры забираются из очереди деструктивно, поэтому монитор
+// обязан уметь вернуть ID назад, если панель была недоступна.
+func TestCache_RestoreTimer_CanBeRequeued(t *testing.T) {
+	c := setupTestCache(t)
+	ctx := context.Background()
+
+	const userID int64 = 781
+
+	if err := c.SetRestoreTimer(ctx, userID, -time.Second); err != nil {
+		t.Fatalf("SetRestoreTimer error: %v", err)
+	}
+
+	expired, err := c.GetExpiredRestoreTimers(ctx)
+	if err != nil {
+		t.Fatalf("GetExpiredRestoreTimers error: %v", err)
+	}
+	if len(expired) != 1 || expired[0] != formatUserID(userID) {
+		t.Fatalf("expired = %v, want [%s]", expired, formatUserID(userID))
+	}
+
+	// Повторный вызов ничего не возвращает — запись уже удалена.
+	if again, err := c.GetExpiredRestoreTimers(ctx); err != nil || len(again) != 0 {
+		t.Fatalf("expected empty queue, got %v (err %v)", again, err)
+	}
+
+	if err := c.SetRestoreTimer(ctx, userID, -time.Second); err != nil {
+		t.Fatalf("requeue error: %v", err)
+	}
+	requeued, err := c.GetExpiredRestoreTimers(ctx)
+	if err != nil {
+		t.Fatalf("GetExpiredRestoreTimers error: %v", err)
+	}
+	if len(requeued) != 1 {
+		t.Errorf("после возврата в очередь получено %v, want 1 запись", requeued)
+	}
+}

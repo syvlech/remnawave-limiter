@@ -20,6 +20,7 @@ const (
 	prefixViolationCount     = "violations:count:"
 	prefixViolationThreshold = "violations:threshold:"
 	prefixWhitelistTemp      = "whitelist:temp:"
+	prefixRestoreAttempts    = "restore:attempts:"
 	keyWhitelist             = "whitelist"
 	keyRestoreQ              = "restore:queue"
 	keyConfigOverrides       = "config:overrides"
@@ -33,8 +34,6 @@ type Cache struct {
 	client *redis.Client
 }
 
-// formatUserID даёт то же десятичное представление ID, что использовалось до
-// перехода на Remnawave 3.x, поэтому существующие ключи Redis остаются валидными.
 func formatUserID(userID int64) string {
 	return strconv.FormatInt(userID, 10)
 }
@@ -170,18 +169,18 @@ func (c *Cache) SetRestoreTimer(ctx context.Context, userID int64, duration time
 	}).Err()
 }
 
+var popExpiredRestore = redis.NewScript(`
+	local expired = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])
+	if #expired > 0 then
+		redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])
+	end
+	return expired
+`)
+
 func (c *Cache) GetExpiredRestoreTimers(ctx context.Context) ([]string, error) {
-	now := fmt.Sprintf("%d", time.Now().Unix())
+	now := strconv.FormatInt(time.Now().Unix(), 10)
 
-	script := redis.NewScript(`
-		local expired = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])
-		if #expired > 0 then
-			redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])
-		end
-		return expired
-	`)
-
-	result, err := script.Run(ctx, c.client, []string{keyRestoreQ}, now).StringSlice()
+	result, err := popExpiredRestore.Run(ctx, c.client, []string{keyRestoreQ}, now).StringSlice()
 	if err == redis.Nil {
 		return nil, nil
 	}
@@ -191,13 +190,27 @@ func (c *Cache) GetExpiredRestoreTimers(ctx context.Context) ([]string, error) {
 	return result, nil
 }
 
+var incrFixedWindow = redis.NewScript(`
+	local count = redis.call('INCR', KEYS[1])
+	if count == 1 or redis.call('TTL', KEYS[1]) < 0 then
+		redis.call('EXPIRE', KEYS[1], ARGV[1])
+	end
+	return count
+`)
+
+func (c *Cache) incr(ctx context.Context, key string, window time.Duration) (int64, error) {
+	seconds := int64(window.Seconds())
+	if seconds < 1 {
+		seconds = 1
+	}
+	return incrFixedWindow.Run(ctx, c.client, []string{key}, seconds).Int64()
+}
+
 func (c *Cache) IncrViolationCount(ctx context.Context, userID int64) (int64, error) {
-	key := prefixViolationCount + formatUserID(userID)
-	count, err := c.client.Incr(ctx, key).Result()
+	count, err := c.incr(ctx, prefixViolationCount+formatUserID(userID), 24*time.Hour)
 	if err != nil {
 		return 0, fmt.Errorf("incr violation count: %w", err)
 	}
-	c.client.Expire(ctx, key, 24*time.Hour)
 	return count, nil
 }
 
@@ -213,17 +226,27 @@ func (c *Cache) GetViolationCount(ctx context.Context, userID int64) (int64, err
 }
 
 func (c *Cache) IncrThresholdCount(ctx context.Context, userID int64, window time.Duration) (int64, error) {
-	key := prefixViolationThreshold + formatUserID(userID)
-	count, err := c.client.Incr(ctx, key).Result()
+	count, err := c.incr(ctx, prefixViolationThreshold+formatUserID(userID), window)
 	if err != nil {
 		return 0, fmt.Errorf("incr threshold count: %w", err)
 	}
-	c.client.Expire(ctx, key, window)
 	return count, nil
 }
 
 func (c *Cache) ResetThresholdCount(ctx context.Context, userID int64) error {
 	return c.client.Del(ctx, prefixViolationThreshold+formatUserID(userID)).Err()
+}
+
+func (c *Cache) IncrRestoreAttempts(ctx context.Context, userID int64) (int64, error) {
+	count, err := c.incr(ctx, prefixRestoreAttempts+formatUserID(userID), time.Hour)
+	if err != nil {
+		return 0, fmt.Errorf("incr restore attempts: %w", err)
+	}
+	return count, nil
+}
+
+func (c *Cache) ResetRestoreAttempts(ctx context.Context, userID int64) error {
+	return c.client.Del(ctx, prefixRestoreAttempts+formatUserID(userID)).Err()
 }
 
 type ViolatorStat struct {

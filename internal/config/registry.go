@@ -40,6 +40,7 @@ var registry = []Field{
 	{Key: "SUBNET_PREFIX_V4", TitleKey: "setting.SUBNET_PREFIX_V4", Kind: KindInt},
 	{Key: "ASN_GROUPING", TitleKey: "setting.ASN_GROUPING", Kind: KindBool, Allowed: []string{"true", "false"}},
 	{Key: "DAILY_REPORT", TitleKey: "setting.DAILY_REPORT", Kind: KindBool, Allowed: []string{"true", "false"}},
+	{Key: "LOG_LEVEL", TitleKey: "setting.LOG_LEVEL", Kind: KindEnum, Allowed: LogLevels},
 }
 
 func Registry() []Field {
@@ -124,6 +125,8 @@ func Display(cfg *Config, key string) string {
 		return strconv.FormatBool(cfg.ASNGrouping)
 	case "DAILY_REPORT":
 		return strconv.FormatBool(cfg.DailyReport)
+	case "LOG_LEVEL":
+		return cfg.LogLevel
 	}
 	return ""
 }

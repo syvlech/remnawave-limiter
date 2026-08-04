@@ -19,6 +19,7 @@ Monitors simultaneous user connections via the panel API: collects IPs from all 
 - **Runtime settings** via `/settings` — change parameters on the fly without restart (stored in Redis)
 - **Whitelist** of users and IP/CIDR, cooldown, cache, timezone selection, ru/en
 - **Liveness `/healthz`** (optional, via `HEALTH_ADDR`) for Docker/orchestrator healthchecks
+- **Logs built for `docker compose logs -f`** — a summary line per check cycle, log level changeable at runtime, `LOG_FORMAT=json` for Loki/ELK
 
 ## Architecture
 
@@ -36,6 +37,8 @@ Monitors simultaneous user connections via the panel API: collects IPs from all 
 A single instance alongside the panel or on any server. No node installation needed — everything goes through the API. Docker Compose runs the service + Redis.
 
 **Check cycle:** node list (`GET /api/nodes`) → parallel IP collection per node → aggregation per user → filter by `lastSeen` → compare against `limit + tolerance` → increment threshold counter → on threshold, react (alert or auto-block).
+
+A failing node does not abort the cycle: the check proceeds on the remaining ones and logs a warning about incomplete data. If no node responded at all, the whole cycle is skipped — otherwise the absence of connections would read as "everyone is within their limit".
 
 ## Requirements
 
@@ -59,6 +62,27 @@ image: ghcr.io/syvlech/remnawave-limiter:b422f43
 ```
 
 `b422f43` is the 3.0.0 release commit. There is no dedicated `3.0.0` image tag in ghcr: CI only builds semver tags for `v*` refs, while the release is tagged `3.0.0` without the prefix.
+
+## Upgrading to 4.2.0
+
+No data migration is needed — `docker compose pull && docker compose up -d` is enough. But configuration validation is now strict, and the service **refuses to start** when `.env` contains:
+
+- **a typo in a numeric or boolean parameter** (`CHECK_INTERVAL=6O`, `AUTO_NOTIFY_SOFT=yes`). Previously such a value was silently replaced by the default, so the limiter ran with thresholds the administrator never set. Startup now prints every invalid parameter at once;
+- **a negative value** for `TOLERANCE`, `TOLERANCE_MULTIPLIER`, `USER_CACHE_TTL`, `DEFAULT_DEVICE_LIMIT`, `AUTO_DISABLE_DURATION`, `IGNORE_DURATION`;
+- **`REMNAWAVE_API_URL` without a scheme** (`panel.example.com` instead of `https://panel.example.com`) — the address used to be accepted, and every panel request failed at runtime instead;
+- **a non-numeric `WHITELIST_USER_IDS`** — a UUID left over from pre-4.0 versions would never match a user ID and silently did nothing;
+- **an unknown timezone, language, `LOG_LEVEL` or `LOG_FORMAT`**.
+
+The reason is always in the first lines of `docker compose logs limiter`.
+
+Notable behaviour changes:
+
+- **Logging** was reworked for `docker compose logs -f`: one summary line per check cycle (`Проверка  nodes=2/2 took=308ms users=17 violations=1`), a single consistent format, and no duplicate lines from the Telegram library. Adds `LOG_LEVEL` (changeable at runtime via `/settings`) and `LOG_FORMAT=json` for log shippers.
+- **Timer-based restore** no longer loses a user when the panel was unreachable at the moment the timer fired: the ID goes back into the queue, and once attempts are exhausted the admins get a chat notification.
+- **`/healthz`** only counts a check as successful when at least one node was polled.
+- **The "violations in 24h" counter** now actually expires after 24 hours (previously it never reset for a repeat offender and grew without bound).
+- **Panel requests** survive `429` and honour `Retry-After` — a rate limit used to abort the whole check.
+- **Webhooks** retry on transient failures and add an `X-Timestamp` header.
 
 ## Upgrading from limiter 3.x to 4.0.0
 
@@ -89,7 +113,7 @@ Required parameters in `.env`:
 ```bash
 REMNAWAVE_API_URL=https://panel.example.com
 REMNAWAVE_API_TOKEN=your-api-token-here
-TELEGRAM_BOT_TOKEN=123456:ABC-DEF
+TELEGRAM_BOT_TOKEN=123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11X
 TELEGRAM_CHAT_ID=-1001234567890
 TELEGRAM_ADMIN_IDS=123456789
 LANGUAGE=en
@@ -147,6 +171,8 @@ All settings via `.env` or environment variables.
 | `DAILY_REPORT` | `false` | Daily violation report to the chat (top violators + counts). Toggleable at runtime via `/settings` |
 | `DAILY_REPORT_TIME` | `09:00` | Local time to send the report (`HH:MM`, in `TIMEZONE`). Restart required to change |
 | `HEALTH_ADDR` | — | Address of the HTTP liveness endpoint `/healthz` (e.g. `:8080`). Empty = disabled |
+| `LOG_LEVEL` | `info` | Log verbosity: `trace`, `debug`, `info`, `warn`, `error`. At `info` — one summary line per check cycle plus every action taken; `debug` adds the per-IP breakdown and Telegram transport details. Changeable at runtime via `/settings` |
+| `LOG_FORMAT` | `text` | `text` for humans, `json` for log shippers (Loki, ELK). Restart required to change |
 
 **ASN in alerts.** When the MaxMind database is available, each IP in alerts and webhooks is annotated with the provider (`• 91.107.96.11 - Hetzner Online GmbH (Chicago-1)`), and the header shows the unique ASN count (`Detected: 4 IP (3 ASN)`). It never affects the limiting logic — decisions use IP/subnet/ASN counts only.
 
@@ -184,7 +210,7 @@ Available to admins from `TELEGRAM_ADMIN_IDS` only. Registered in the bot's comm
 
 ### Runtime settings (`/settings`)
 
-Source priority: **Redis override > `.env` / environment > defaults**. Changes apply on the fly (e.g. `CHECK_INTERVAL` resets the ticker). Structural and secret keys (API URL/token, all `TELEGRAM_*`, `REDIS_URL`, `TIMEZONE`, `LANGUAGE`, `WEBHOOK_*`, `IP_WHITELIST`, `IGNORED_NODE_UUIDS`, `MAXMIND_*`, `DAILY_REPORT_TIME`, `HEALTH_ADDR`) require an `.env` change + restart. "Reset to .env" (per key or all) removes the override.
+Source priority: **Redis override > `.env` / environment > defaults**. Changes apply on the fly (e.g. `CHECK_INTERVAL` resets the ticker). Structural and secret keys (API URL/token, all `TELEGRAM_*`, `REDIS_URL`, `TIMEZONE`, `LANGUAGE`, `WEBHOOK_*`, `IP_WHITELIST`, `IGNORED_NODE_UUIDS`, `MAXMIND_*`, `DAILY_REPORT_TIME`, `HEALTH_ADDR`, `LOG_FORMAT`) require an `.env` change + restart. "Reset to .env" (per key or all) removes the override.
 
 ### Daily report (`DAILY_REPORT=true`)
 
@@ -236,7 +262,9 @@ Soft warnings use a separate cooldown (`cooldown:soft:`), do **not** increment t
 
 ## Webhook
 
-On a violation the limiter can send an HTTP POST to `WEBHOOK_URL` (works in both modes). When `WEBHOOK_SECRET` is set, two headers are added: `X-Webhook-Secret` (the raw secret, for a simple match) and `X-Signature: sha256=<hex>` — an HMAC-SHA256 of the request body with that secret (for integrity / tamper protection). Delivery is asynchronous (fire-and-forget) and does not block the monitoring loop.
+On a violation the limiter can send an HTTP POST to `WEBHOOK_URL` (works in both modes). Every request carries `X-Timestamp` (unix send time) so the receiver can reject replayed requests. When `WEBHOOK_SECRET` is set, two more headers are added: `X-Webhook-Secret` (the raw secret, for a simple match) and `X-Signature: sha256=<hex>` — an HMAC-SHA256 of the request body with that secret (for integrity / tamper protection).
+
+Delivery does not block the monitoring loop. On a network error, 5xx or 429 it is retried (up to 3 attempts); a 4xx is treated as a deliberate rejection by the receiver and is not retried. The event survives shutdown: on SIGTERM the limiter waits for delivery instead of dropping it.
 
 **Example payload:**
 
@@ -253,14 +281,16 @@ On a violation the limiter can send an HTTP POST to `WEBHOOK_URL` (works in both
   },
   "violation": {
     "ips": [
-      { "ip": "1.2.3.4", "node_name": "DE-1", "node_uuid": "node-uuid-1", "last_seen": "2025-11-29T12:00:00Z" },
+      { "ip": "1.2.3.4", "node_name": "DE-1", "node_uuid": "node-uuid-1", "last_seen": "2025-11-29T12:00:00Z", "asn": 24940, "asn_org": "Hetzner Online GmbH" },
       { "ip": "5.6.7.8", "node_name": "US-1", "node_uuid": "node-uuid-2", "last_seen": "2025-11-29T12:01:00Z" }
     ],
     "ip_count": 5,
     "device_limit": 3,
     "tolerance": 1,
     "effective_limit": 4,
-    "violation_count_24h": 3
+    "violation_count_24h": 3,
+    "device_group_count": 5,
+    "grouping_mode": "ip"
   },
   "action": { "auto_disable_duration_min": 10 },
   "timestamp": "2025-11-29T12:05:00Z"
@@ -276,6 +306,10 @@ On a violation the limiter can send an HTTP POST to `WEBHOOK_URL` (works in both
 | `violation.ip_count` | Number of unique IPs |
 | `violation.device_limit` / `tolerance` / `effective_limit` | Limit, tolerance, and effective limit (`device_limit + tolerance`) |
 | `violation.violation_count_24h` | Violations in the last 24 hours |
+| `violation.grouping_mode` | What devices were counted by: `ip`, `subnet` or `asn` |
+| `violation.device_group_count` | Final "device" count in the selected mode — this is what gets compared to the limit |
+| `violation.subnet_count` / `asn_group_count` | Number of subnets / ASN groups. Present only when the mode is enabled |
+| `violation.ips[].asn` / `asn_org` | Provider number and name. Present only when the MaxMind database is loaded and the ASN resolved |
 | `action.auto_disable_duration_min` | Disable duration in minutes (0 = permanent) |
 | `timestamp` | Detection time (ISO 8601) |
 
@@ -283,7 +317,7 @@ On a violation the limiter can send an HTTP POST to `WEBHOOK_URL` (works in both
 
 **How to find my Telegram Chat ID?** Add [@userinfobot](https://t.me/userinfobot) and send `/start`. For a group/channel — [@getidsbot](https://t.me/getidsbot).
 
-**What if the panel API is unavailable?** The service logs an error, skips the cycle, and retries after `CHECK_INTERVAL`. API requests retry up to 3 times with exponential backoff.
+**What if the panel API is unavailable?** The service logs an error, skips the cycle, and retries after `CHECK_INTERVAL`. API requests retry up to 3 times with jittered exponential backoff; 429 and 408 are retried too, and the panel's `Retry-After` header is honoured. A cycle in which no node could be polled does not count as successful — `/healthz` will surface the problem.
 
 **Can I use Redis from Remnawave?** You can, but it's not recommended — the project runs its own Redis. For an existing one, set `REDIS_URL`.
 

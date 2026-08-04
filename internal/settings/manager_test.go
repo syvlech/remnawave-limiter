@@ -9,7 +9,10 @@ import (
 	"github.com/remnawave/limiter/internal/config"
 )
 
-const testRedisURL = "redis://localhost:6379/15"
+// Отдельная БД от internal/cache (там 15): `go test ./...` запускает пакеты
+// параллельно, а тесты cache делают FlushDB — на общей БД они стирали бы
+// config:overrides прямо посреди здешнего теста.
+const testRedisURL = "redis://localhost:6379/14"
 
 func setRequiredEnv() {
 	os.Setenv("REMNAWAVE_API_URL", "https://api.example.com")

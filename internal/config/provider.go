@@ -1,9 +1,15 @@
 package config
 
-import "sync/atomic"
+import (
+	"sync"
+	"sync/atomic"
+)
 
 type Provider struct {
 	v atomic.Pointer[Config]
+
+	mu       sync.RWMutex
+	watchers []func(*Config)
 }
 
 func NewProvider(c *Config) *Provider {
@@ -18,4 +24,21 @@ func (p *Provider) Load() *Config {
 
 func (p *Provider) Store(c *Config) {
 	p.v.Store(c)
+
+	p.mu.RLock()
+	watchers := p.watchers
+	p.mu.RUnlock()
+
+	for _, w := range watchers {
+		w(c)
+	}
+}
+
+func (p *Provider) Watch(fn func(*Config)) {
+	if fn == nil {
+		return
+	}
+	p.mu.Lock()
+	p.watchers = append(p.watchers, fn)
+	p.mu.Unlock()
 }

@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -25,6 +26,13 @@ func clearEnv() {
 		"ASN_DATABASE_PATH",
 		"MAXMIND_LICENSE_KEY", "MAXMIND_UPDATE_INTERVAL",
 		"IGNORED_NODE_UUIDS",
+		"IP_WHITELIST",
+		"VIOLATION_THRESHOLD", "VIOLATION_THRESHOLD_WINDOW",
+		"AUTO_NOTIFY_SOFT",
+		"DAILY_REPORT", "DAILY_REPORT_TIME",
+		"HEALTH_ADDR",
+		"LOG_LEVEL", "LOG_FORMAT",
+		"REMNAWAVE_COOKIES", "REMNAWAVE_HEADERS",
 	}
 	for _, v := range vars {
 		os.Unsetenv(v)
@@ -528,5 +536,223 @@ func TestLoadConfig_IgnoredNodeUUIDs_Custom(t *testing.T) {
 		if cfg.IgnoredNodeUUIDs[i] != v {
 			t.Errorf("IgnoredNodeUUIDs[%d] = %q, want %q", i, cfg.IgnoredNodeUUIDs[i], v)
 		}
+	}
+}
+
+func TestLoadConfig_NumericTypo_IsRejected(t *testing.T) {
+	// Опечатка в числовом параметре раньше молча подменялась дефолтом,
+	// и лимитер работал не с теми порогами, что задал администратор.
+	cases := []struct{ key, value string }{
+		{"CHECK_INTERVAL", "6O"},
+		{"TOLERANCE", "one"},
+		{"TOLERANCE_MULTIPLIER", "0,5"},
+		{"TELEGRAM_THREAD_ID", "abc"},
+		{"AUTO_NOTIFY_SOFT", "yes please"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.key, func(t *testing.T) {
+			clearEnv()
+			setRequiredEnv()
+			os.Setenv(tc.key, tc.value)
+			defer os.Unsetenv(tc.key)
+
+			if _, err := LoadConfig(""); err == nil {
+				t.Errorf("expected error for %s=%q, got nil", tc.key, tc.value)
+			}
+		})
+	}
+}
+
+func TestLoadConfig_ReportsAllTypos(t *testing.T) {
+	clearEnv()
+	setRequiredEnv()
+	os.Setenv("CHECK_INTERVAL", "x")
+	os.Setenv("COOLDOWN", "y")
+	defer os.Unsetenv("CHECK_INTERVAL")
+	defer os.Unsetenv("COOLDOWN")
+
+	_, err := LoadConfig("")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	for _, key := range []string{"CHECK_INTERVAL", "COOLDOWN"} {
+		if !strings.Contains(err.Error(), key) {
+			t.Errorf("error should mention %s, got: %v", key, err)
+		}
+	}
+}
+
+func TestLoadConfig_APIURL_TrailingSlashTrimmed(t *testing.T) {
+	clearEnv()
+	setRequiredEnv()
+	os.Setenv("REMNAWAVE_API_URL", "https://panel.example.com///")
+
+	cfg, err := LoadConfig("")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Пути в клиенте начинаются со слэша: иначе получилось бы //api/nodes.
+	if cfg.RemnawaveAPIURL != "https://panel.example.com" {
+		t.Errorf("RemnawaveAPIURL = %q, want %q", cfg.RemnawaveAPIURL, "https://panel.example.com")
+	}
+}
+
+func TestLoadConfig_APIURL_Invalid(t *testing.T) {
+	cases := []struct{ name, value string }{
+		{"no_scheme", "panel.example.com"},
+		{"wrong_scheme", "ftp://panel.example.com"},
+		{"no_host", "https://"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			clearEnv()
+			setRequiredEnv()
+			os.Setenv("REMNAWAVE_API_URL", tc.value)
+
+			if _, err := LoadConfig(""); err == nil {
+				t.Errorf("expected error for REMNAWAVE_API_URL=%q, got nil", tc.value)
+			}
+		})
+	}
+}
+
+func TestLoadConfig_NegativeValues_Rejected(t *testing.T) {
+	cases := []struct{ key, value string }{
+		{"TOLERANCE", "-1"},
+		{"TOLERANCE_MULTIPLIER", "-0.5"},
+		{"USER_CACHE_TTL", "-10"},
+		{"DEFAULT_DEVICE_LIMIT", "-3"},
+		{"AUTO_DISABLE_DURATION", "-5"},
+		{"IGNORE_DURATION", "-5"},
+		{"VIOLATION_THRESHOLD", "0"},
+		{"VIOLATION_THRESHOLD_WINDOW", "0"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.key, func(t *testing.T) {
+			clearEnv()
+			setRequiredEnv()
+			os.Setenv(tc.key, tc.value)
+			defer os.Unsetenv(tc.key)
+
+			if _, err := LoadConfig(""); err == nil {
+				t.Errorf("expected error for %s=%s, got nil", tc.key, tc.value)
+			}
+		})
+	}
+}
+
+func TestLoadConfig_Timezone_Invalid(t *testing.T) {
+	clearEnv()
+	setRequiredEnv()
+	os.Setenv("TIMEZONE", "Mars/Olympus")
+	defer os.Unsetenv("TIMEZONE")
+
+	if _, err := LoadConfig(""); err == nil {
+		t.Error("expected error for unknown TIMEZONE, got nil")
+	}
+}
+
+func TestLoadConfig_Language_Invalid(t *testing.T) {
+	clearEnv()
+	setRequiredEnv()
+	os.Setenv("LANGUAGE", "de")
+	defer os.Unsetenv("LANGUAGE")
+
+	if _, err := LoadConfig(""); err == nil {
+		t.Error("expected error for unsupported LANGUAGE, got nil")
+	}
+}
+
+func TestLoadConfig_WhitelistUserIDs_MustBeNumeric(t *testing.T) {
+	clearEnv()
+	setRequiredEnv()
+	// UUID остался в конфиге от версии до 4.0 — он никогда не совпал бы
+	// с числовым ID и молча не работал бы.
+	os.Setenv("WHITELIST_USER_IDS", "111,4f2d0f6d-551f-4c98-a20e-058da935673c")
+	defer os.Unsetenv("WHITELIST_USER_IDS")
+
+	if _, err := LoadConfig(""); err == nil {
+		t.Error("expected error for non-numeric WHITELIST_USER_IDS, got nil")
+	}
+}
+
+func TestLoadConfig_Logging_Defaults(t *testing.T) {
+	clearEnv()
+	setRequiredEnv()
+
+	cfg, err := LoadConfig("")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.LogLevel != "info" {
+		t.Errorf("LogLevel = %q, want info", cfg.LogLevel)
+	}
+	if cfg.LogFormat != "text" {
+		t.Errorf("LogFormat = %q, want text", cfg.LogFormat)
+	}
+}
+
+func TestLoadConfig_Logging_Custom(t *testing.T) {
+	clearEnv()
+	setRequiredEnv()
+	os.Setenv("LOG_LEVEL", "DEBUG")
+	os.Setenv("LOG_FORMAT", "JSON")
+	defer os.Unsetenv("LOG_LEVEL")
+	defer os.Unsetenv("LOG_FORMAT")
+
+	cfg, err := LoadConfig("")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.LogLevel != "debug" {
+		t.Errorf("LogLevel = %q, want debug", cfg.LogLevel)
+	}
+	if cfg.LogFormat != "json" {
+		t.Errorf("LogFormat = %q, want json", cfg.LogFormat)
+	}
+}
+
+func TestLoadConfig_Logging_Invalid(t *testing.T) {
+	for _, tc := range []struct{ key, value string }{
+		{"LOG_LEVEL", "verbose"},
+		{"LOG_FORMAT", "xml"},
+	} {
+		t.Run(tc.key, func(t *testing.T) {
+			clearEnv()
+			setRequiredEnv()
+			os.Setenv(tc.key, tc.value)
+			defer os.Unsetenv(tc.key)
+
+			if _, err := LoadConfig(""); err == nil {
+				t.Errorf("expected error for %s=%s, got nil", tc.key, tc.value)
+			}
+		})
+	}
+}
+
+func TestLoadConfig_HealthAddr(t *testing.T) {
+	clearEnv()
+	setRequiredEnv()
+	os.Setenv("HEALTH_ADDR", "8080")
+	defer os.Unsetenv("HEALTH_ADDR")
+
+	if _, err := LoadConfig(""); err == nil {
+		t.Error("expected error for HEALTH_ADDR without colon, got nil")
+	}
+
+	os.Setenv("HEALTH_ADDR", ":8080")
+	if _, err := LoadConfig(""); err != nil {
+		t.Errorf("unexpected error for HEALTH_ADDR=:8080: %v", err)
+	}
+}
+
+func TestLoadConfig_RedisURL_Invalid(t *testing.T) {
+	clearEnv()
+	setRequiredEnv()
+	os.Setenv("REDIS_URL", "http://redis:6379")
+	defer os.Unsetenv("REDIS_URL")
+
+	if _, err := LoadConfig(""); err == nil {
+		t.Error("expected error for non-redis REDIS_URL, got nil")
 	}
 }

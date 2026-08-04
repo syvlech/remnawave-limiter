@@ -16,7 +16,18 @@ import (
 	"github.com/oschwald/maxminddb-golang"
 )
 
-const defaultBaseURL = "https://download.maxmind.com/app/geoip_download"
+const (
+	defaultBaseURL = "https://download.maxmind.com/app/geoip_download"
+
+	maxDBSize = 512 << 20
+)
+
+func redactLicenseKey(s, key string) string {
+	if key == "" {
+		return s
+	}
+	return strings.ReplaceAll(s, key, "***")
+}
 
 type Downloader struct {
 	HTTPClient *http.Client
@@ -75,7 +86,7 @@ func (d *Downloader) Download(ctx context.Context, dstPath string) error {
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("downloader: http get: %w", err)
+		return fmt.Errorf("downloader: http get: %s", redactLicenseKey(err.Error(), d.LicenseKey))
 	}
 	defer resp.Body.Close()
 
@@ -121,8 +132,12 @@ func (d *Downloader) Download(ctx context.Context, dstPath string) error {
 		if !strings.HasSuffix(hdr.Name, "/GeoLite2-ASN.mmdb") && !strings.HasSuffix(hdr.Name, "GeoLite2-ASN.mmdb") {
 			continue
 		}
-		if _, err := io.Copy(tmpFile, tr); err != nil {
+		written, err := io.Copy(tmpFile, io.LimitReader(tr, maxDBSize+1))
+		if err != nil {
 			return fmt.Errorf("downloader: extract: %w", err)
+		}
+		if written > maxDBSize {
+			return fmt.Errorf("downloader: база больше %d байт — отброшена", maxDBSize)
 		}
 		found = true
 		break

@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -110,13 +111,14 @@ func writeIPList(b *strings.Builder, ips []api.ActiveIP) {
 			b.WriteString(fmt.Sprintf("  … %s %d\n", i18n.T("alert.and_more"), len(ips)-maxIPs))
 			return
 		}
+		href := "https://ipinfo.io/" + url.PathEscape(ip.IP)
 		org := strings.TrimSpace(ip.ASNOrg)
 		if org != "" {
-			b.WriteString(fmt.Sprintf("  • <a href=\"https://ipinfo.io/%s\">%s</a> - %s (%s)\n",
-				ip.IP, escapeHTML(ip.IP), escapeHTML(truncateASNOrg(org)), escapeHTML(ip.NodeName)))
+			b.WriteString(fmt.Sprintf("  • <a href=\"%s\">%s</a> - %s (%s)\n",
+				escapeHTML(href), escapeHTML(ip.IP), escapeHTML(truncateASNOrg(org)), escapeHTML(ip.NodeName)))
 		} else {
-			b.WriteString(fmt.Sprintf("  • <a href=\"https://ipinfo.io/%s\">%s</a> (%s)\n",
-				ip.IP, escapeHTML(ip.IP), escapeHTML(ip.NodeName)))
+			b.WriteString(fmt.Sprintf("  • <a href=\"%s\">%s</a> (%s)\n",
+				escapeHTML(href), escapeHTML(ip.IP), escapeHTML(ip.NodeName)))
 		}
 	}
 }
@@ -286,5 +288,6 @@ func escapeHTML(s string) string {
 	s = strings.ReplaceAll(s, "&", "&amp;")
 	s = strings.ReplaceAll(s, "<", "&lt;")
 	s = strings.ReplaceAll(s, ">", "&gt;")
+	s = strings.ReplaceAll(s, "\"", "&quot;")
 	return s
 }

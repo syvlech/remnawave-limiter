@@ -3,9 +3,12 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestClient_GetNodes(t *testing.T) {
@@ -288,5 +291,148 @@ func TestClient_DropConnections(t *testing.T) {
 	err := client.DropConnections(context.Background(), []int64{42, 77})
 	if err != nil {
 		t.Fatalf("DropConnections returned error: %v", err)
+	}
+}
+
+// fastClient — клиент без реальных пауз между повторами.
+func fastClient(baseURL string) *Client {
+	c := NewClient(baseURL, "test-token")
+	c.backoff = time.Millisecond
+	return c
+}
+
+func TestClient_RetriesOn5xx(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls < 3 {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		w.Write([]byte(`{"response":[]}`))
+	}))
+	defer srv.Close()
+
+	if _, err := fastClient(srv.URL).GetActiveNodes(context.Background()); err != nil {
+		t.Fatalf("expected success after retries, got %v", err)
+	}
+	if calls != 3 {
+		t.Errorf("expected 3 calls, got %d", calls)
+	}
+}
+
+func TestClient_RetriesOn429(t *testing.T) {
+	// Панель за Cloudflare отдаёт 429; раньше это была мгновенная ошибка
+	// и вся проверка срывалась.
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			w.Header().Set("Retry-After", "0")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.Write([]byte(`{"response":[]}`))
+	}))
+	defer srv.Close()
+
+	if _, err := fastClient(srv.URL).GetActiveNodes(context.Background()); err != nil {
+		t.Fatalf("expected success after 429 retry, got %v", err)
+	}
+	if calls != 2 {
+		t.Errorf("expected 2 calls, got %d", calls)
+	}
+}
+
+func TestClient_DoesNotRetryOn4xx(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	if _, err := fastClient(srv.URL).GetActiveNodes(context.Background()); err == nil {
+		t.Fatal("expected error on 401")
+	}
+	if calls != 1 {
+		t.Errorf("expected no retry on 401, got %d calls", calls)
+	}
+}
+
+func TestClient_ErrorBodyIsTruncated(t *testing.T) {
+	// WAF перед панелью умеет отдавать мегабайтные HTML-страницы;
+	// целиком они не должны попадать ни в лог, ни в Telegram.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte(strings.Repeat("A", 100_000)))
+	}))
+	defer srv.Close()
+
+	_, err := fastClient(srv.URL).GetActiveNodes(context.Background())
+	if err == nil {
+		t.Fatal("expected error on 403")
+	}
+	if len(err.Error()) > maxErrBodyLen+300 {
+		t.Errorf("error message not truncated: %d chars", len(err.Error()))
+	}
+	if !strings.Contains(err.Error(), "обрезано") {
+		t.Errorf("expected truncation marker in error, got: %.200s", err.Error())
+	}
+}
+
+func TestClient_RespectsContextCancellation(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if _, err := fastClient(srv.URL).GetActiveNodes(ctx); !errors.Is(err, context.Canceled) {
+		t.Errorf("expected context.Canceled, got %v", err)
+	}
+}
+
+func TestRetryAfter(t *testing.T) {
+	cases := []struct {
+		name   string
+		header string
+		want   time.Duration
+	}{
+		{"empty", "", 0},
+		{"seconds", "5", 5 * time.Second},
+		{"zero", "0", 0},
+		{"negative", "-3", 0},
+		{"garbage", "soon", 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := http.Header{}
+			if tc.header != "" {
+				h.Set("Retry-After", tc.header)
+			}
+			if got := retryAfter(h); got != tc.want {
+				t.Errorf("retryAfter(%q) = %v, want %v", tc.header, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestClient_TrimsTrailingSlashInBaseURL(t *testing.T) {
+	var path string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path = r.URL.Path
+		w.Write([]byte(`{"response":[]}`))
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL+"/", "test-token")
+	if _, err := client.GetActiveNodes(context.Background()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if path != "/api/nodes" {
+		t.Errorf("path = %q, want /api/nodes", path)
 	}
 }

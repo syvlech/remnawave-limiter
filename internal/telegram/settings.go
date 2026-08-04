@@ -188,10 +188,7 @@ func (b *Bot) replyText(ctx context.Context, chatID int64, text string) {
 
 func (b *Bot) handleSettingsCallback(ctx context.Context, callback *telego.CallbackQuery) {
 	answer := func(text string) {
-		_ = b.api.AnswerCallbackQuery(ctx, &telego.AnswerCallbackQueryParams{
-			CallbackQueryID: callback.ID,
-			Text:            text,
-		})
+		b.answerCallback(ctx, callback.ID, text)
 	}
 
 	if b.settings == nil {

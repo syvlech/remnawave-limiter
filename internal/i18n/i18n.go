@@ -87,8 +87,10 @@ var translations = map[string]map[string]string{
 		"setting.SUBNET_PREFIX_V4":           "Префикс подсети IPv4",
 		"setting.ASN_GROUPING":               "Группировка по ASN",
 		"setting.DAILY_REPORT":               "Ежедневный отчёт",
+		"setting.LOG_LEVEL":                  "Уровень логирования",
 
 		"restore.message": "🔓 Подписка <code>%d</code> автоматически включена по таймеру",
+		"restore.failed":  "⚠️ Не удалось включить подписку <code>%d</code> по таймеру — включите её вручную в панели",
 
 		"duration.forever": "навсегда",
 		"duration.min":     "мин",
@@ -210,8 +212,10 @@ var translations = map[string]map[string]string{
 		"setting.SUBNET_PREFIX_V4":           "IPv4 subnet prefix",
 		"setting.ASN_GROUPING":               "ASN grouping",
 		"setting.DAILY_REPORT":               "Daily report",
+		"setting.LOG_LEVEL":                  "Log level",
 
 		"restore.message": "🔓 Subscription <code>%d</code> automatically enabled by timer",
+		"restore.failed":  "⚠️ Failed to enable subscription <code>%d</code> by timer — enable it manually in the panel",
 
 		"duration.forever": "forever",
 		"duration.min":     "min",

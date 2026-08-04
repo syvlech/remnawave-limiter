@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -149,17 +150,97 @@ func TestClient_Send_NoSecretHeader_WhenEmpty(t *testing.T) {
 	}
 }
 
-func TestClient_Send_ServerError_DoesNotPanic(t *testing.T) {
+// fastClient — клиент без реальных пауз между повторами, чтобы тесты
+// ретраев не занимали секунды.
+func fastClient(url, secret string) *Client {
+	c := NewClient(url, secret, testLogger())
+	c.retryDelay = time.Millisecond
+	return c
+}
+
+func TestClient_Send_ServerError_Retries(t *testing.T) {
+	var calls int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer srv.Close()
 
-	client := NewClient(srv.URL, "", testLogger())
-	client.Send(context.Background(), testPayload())
+	fastClient(srv.URL, "").Send(context.Background(), testPayload())
+
+	if calls != maxAttempts {
+		t.Errorf("expected %d attempts on 5xx, got %d", maxAttempts, calls)
+	}
+}
+
+func TestClient_Send_ClientError_DoesNotRetry(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+	defer srv.Close()
+
+	fastClient(srv.URL, "").Send(context.Background(), testPayload())
+
+	// 4xx — осознанный отказ получателя, повторять нечего.
+	if calls != 1 {
+		t.Errorf("expected 1 attempt on 4xx, got %d", calls)
+	}
+}
+
+func TestClient_Send_RecoversAfterTransientError(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	fastClient(srv.URL, "").Send(context.Background(), testPayload())
+
+	if calls != 2 {
+		t.Errorf("expected delivery on 2nd attempt, got %d calls", calls)
+	}
+}
+
+func TestClient_Send_SendsTimestamp(t *testing.T) {
+	var ts string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ts = r.Header.Get("X-Timestamp")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	fastClient(srv.URL, "secret").Send(context.Background(), testPayload())
+
+	if _, err := strconv.ParseInt(ts, 10, 64); err != nil {
+		t.Errorf("expected unix timestamp in X-Timestamp, got %q", ts)
+	}
 }
 
 func TestClient_Send_Unreachable_DoesNotPanic(t *testing.T) {
-	client := NewClient("http://127.0.0.1:1", "", testLogger())
-	client.Send(context.Background(), testPayload())
+	fastClient("http://127.0.0.1:1", "").Send(context.Background(), testPayload())
+}
+
+func TestClient_Send_CancelledContext_StopsRetrying(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	fastClient(srv.URL, "").Send(ctx, testPayload())
+
+	if calls != 0 {
+		t.Errorf("expected no calls with cancelled context, got %d", calls)
+	}
 }

@@ -391,3 +391,54 @@ func TestFormatActionResult(t *testing.T) {
 		})
 	}
 }
+
+func TestEscapeHTML_EscapesQuote(t *testing.T) {
+	// Результат подставляется в том числе внутрь href="...",
+	// поэтому кавычка обязана экранироваться.
+	got := escapeHTML(`a"b<c&d>e`)
+	want := "a&quot;b&lt;c&amp;d&gt;e"
+	if got != want {
+		t.Errorf("escapeHTML = %q, want %q", got, want)
+	}
+}
+
+func TestWriteIPList_EscapesHostileValues(t *testing.T) {
+	var b strings.Builder
+	writeIPList(&b, []api.ActiveIP{
+		{IP: `1.1.1.1" onmouseover="x`, NodeName: `DE<1>`, ASNOrg: `Acme "ISP"`},
+	})
+	out := b.String()
+
+	if strings.Contains(out, `" onmouseover="`) {
+		t.Errorf("unescaped quote leaked into markup: %s", out)
+	}
+	if strings.Contains(out, "<1>") {
+		t.Errorf("unescaped angle brackets leaked into markup: %s", out)
+	}
+}
+
+func TestFormatAlert_EscapesSubscriptionURL(t *testing.T) {
+	user := &api.CachedUser{
+		Username:        "user",
+		SubscriptionURL: `https://e.com/s?a=1"><b>x</b>`,
+	}
+	out := FormatManualAlert(user, nil, 3, 1, time.UTC, 0, false, 0, false)
+
+	if strings.Contains(out, `"><b>x</b>`) {
+		t.Errorf("subscription URL broke out of the href attribute: %s", out)
+	}
+}
+
+func TestTruncateAnswer(t *testing.T) {
+	short := "всё хорошо"
+	if got := truncateAnswer(short); got != short {
+		t.Errorf("short text must pass through, got %q", got)
+	}
+
+	long := strings.Repeat("я", 500)
+	got := truncateAnswer(long)
+	// Telegram считает лимит в символах, а не байтах — режем по рунам.
+	if runes := []rune(got); len(runes) > callbackAnswerMaxLen {
+		t.Errorf("truncateAnswer returned %d runes, want <= %d", len(runes), callbackAnswerMaxLen)
+	}
+}

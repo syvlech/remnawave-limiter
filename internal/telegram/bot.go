@@ -12,10 +12,17 @@ import (
 	"time"
 
 	"github.com/mymmrac/telego"
+	ta "github.com/mymmrac/telego/telegoapi"
 	tu "github.com/mymmrac/telego/telegoutil"
 	"github.com/sirupsen/logrus"
 
 	"github.com/remnawave/limiter/internal/i18n"
+)
+
+const (
+	sendTimeout = 60 * time.Second
+
+	callbackAnswerMaxLen = 200
 )
 
 type ActionHandler func(ctx context.Context, action string, userID int64) error
@@ -53,6 +60,14 @@ func maskProxyURL(proxyURL string) string {
 	return u.String()
 }
 
+func truncateAnswer(s string) string {
+	runes := []rune(s)
+	if len(runes) <= callbackAnswerMaxLen {
+		return s
+	}
+	return string(runes[:callbackAnswerMaxLen-1]) + "…"
+}
+
 type Bot struct {
 	api      *telego.Bot
 	chatID   int64
@@ -62,20 +77,34 @@ type Bot struct {
 	onAction ActionHandler
 	onStats  StatsHandler
 
+	sendMu sync.Mutex
+
 	settings  SettingsProvider
 	pendingMu sync.Mutex
 	pending   map[int64]pendingInput
 }
 
 func NewBot(token string, chatID, threadID int64, adminIDs []int64, proxyURL string, logger *logrus.Logger) (*Bot, error) {
-	opts := []telego.BotOption{}
+	var caller ta.Caller = ta.DefaultFastHTTPCaller
 	if proxyURL != "" {
 		client, err := buildProxyHTTPClient(proxyURL)
 		if err != nil {
 			return nil, fmt.Errorf("TELEGRAM_PROXY: %w", err)
 		}
-		opts = append(opts, telego.WithHTTPClient(client))
+		caller = ta.HTTPCaller{Client: client}
 		logger.WithField("proxy", maskProxyURL(proxyURL)).Info("Telegram бот: используется прокси")
+	}
+
+	opts := []telego.BotOption{
+		telego.WithLogger(newBotLogger(logger, token)),
+		telego.WithAPICaller(&ta.RetryCaller{
+			Caller:       caller,
+			MaxAttempts:  4,
+			ExponentBase: 2,
+			StartDelay:   time.Second,
+			MaxDelay:     20 * time.Second,
+			RateLimit:    ta.RetryRateLimitWaitOrAbort,
+		}),
 	}
 
 	bot, err := telego.NewBot(token, opts...)
@@ -106,7 +135,7 @@ func (b *Bot) SetStatsHandler(handler StatsHandler) {
 	b.onStats = handler
 }
 
-func (b *Bot) sendMsg(text string, keyboard *telego.InlineKeyboardMarkup) error {
+func (b *Bot) sendMsg(ctx context.Context, text string, keyboard *telego.InlineKeyboardMarkup) error {
 	msg := tu.Message(tu.ID(b.chatID), text).
 		WithParseMode(telego.ModeHTML).
 		WithLinkPreviewOptions(&telego.LinkPreviewOptions{IsDisabled: true})
@@ -119,14 +148,19 @@ func (b *Bot) sendMsg(text string, keyboard *telego.InlineKeyboardMarkup) error 
 		msg = msg.WithReplyMarkup(keyboard)
 	}
 
-	_, err := b.api.SendMessage(context.Background(), msg)
-	if err != nil {
+	b.sendMu.Lock()
+	defer b.sendMu.Unlock()
+
+	sendCtx, cancel := context.WithTimeout(ctx, sendTimeout)
+	defer cancel()
+
+	if _, err := b.api.SendMessage(sendCtx, msg); err != nil {
 		return fmt.Errorf("не удалось отправить сообщение: %w", err)
 	}
 	return nil
 }
 
-func (b *Bot) SendManualAlert(text string, userID int64, disableDuration int, ignoreDuration int) error {
+func (b *Bot) SendManualAlert(ctx context.Context, text string, userID int64, disableDuration int, ignoreDuration int) error {
 	rows := [][]telego.InlineKeyboardButton{
 		{
 			tu.InlineKeyboardButton(i18n.T("button.drop")).WithCallbackData(fmt.Sprintf("drop:%d", userID)),
@@ -153,29 +187,29 @@ func (b *Bot) SendManualAlert(text string, userID int64, disableDuration int, ig
 	}
 
 	keyboard := &telego.InlineKeyboardMarkup{InlineKeyboard: rows}
-	return b.sendMsg(text, keyboard)
+	return b.sendMsg(ctx, text, keyboard)
 }
 
-func (b *Bot) SendAutoAlert(text string, userID int64) error {
+func (b *Bot) SendAutoAlert(ctx context.Context, text string, userID int64) error {
 	keyboard := tu.InlineKeyboard(
 		tu.InlineKeyboardRow(
 			tu.InlineKeyboardButton(i18n.T("button.enable")).WithCallbackData(fmt.Sprintf("enable:%d", userID)),
 		),
 	)
-	return b.sendMsg(text, keyboard)
+	return b.sendMsg(ctx, text, keyboard)
 }
 
-func (b *Bot) SendMessage(text string) error {
-	return b.sendMsg(text, nil)
+func (b *Bot) SendMessage(ctx context.Context, text string) error {
+	return b.sendMsg(ctx, text, nil)
 }
 
-func (b *Bot) SendStartupMessage(text string) error {
+func (b *Bot) SendStartupMessage(ctx context.Context, text string) error {
 	keyboard := tu.InlineKeyboard(
 		tu.InlineKeyboardRow(
 			tu.InlineKeyboardButton(i18n.T("settings.open")).WithCallbackData("cfg:menu"),
 		),
 	)
-	return b.sendMsg(text, keyboard)
+	return b.sendMsg(ctx, text, keyboard)
 }
 
 func botCommands() []telego.BotCommand {
@@ -264,14 +298,24 @@ func (b *Bot) handleStatsCommand(ctx context.Context, msg *telego.Message) {
 	b.replyText(ctx, msg.Chat.ID, text)
 }
 
+func (b *Bot) answerCallback(ctx context.Context, callbackID, text string) {
+	if err := b.api.AnswerCallbackQuery(ctx, &telego.AnswerCallbackQueryParams{
+		CallbackQueryID: callbackID,
+		Text:            truncateAnswer(text),
+	}); err != nil {
+		b.logger.WithError(err).Debug("Telegram бот: не удалось ответить на callback")
+	}
+}
+
 func (b *Bot) handleCallback(ctx context.Context, callback *telego.CallbackQuery) {
 	callerID := callback.From.ID
 
 	if !b.adminIDs[callerID] {
-		_ = b.api.AnswerCallbackQuery(ctx, &telego.AnswerCallbackQueryParams{
-			CallbackQueryID: callback.ID,
-			Text:            i18n.T("callback.no_access"),
-		})
+		b.logger.WithFields(logrus.Fields{
+			"from": callerID,
+			"data": callback.Data,
+		}).Warn("Telegram бот: попытка нажать кнопку без прав администратора")
+		b.answerCallback(ctx, callback.ID, i18n.T("callback.no_access"))
 		return
 	}
 
@@ -283,19 +327,15 @@ func (b *Bot) handleCallback(ctx context.Context, callback *telego.CallbackQuery
 	parts := strings.SplitN(callback.Data, ":", 2)
 	if len(parts) != 2 {
 		b.logger.WithField("data", callback.Data).Warn("Telegram бот: неверный формат callback data")
+		b.answerCallback(ctx, callback.ID, i18n.T("callback.stale"))
 		return
 	}
 
 	action := parts[0]
 	userID, err := strconv.ParseInt(parts[1], 10, 64)
 	if err != nil {
-		// Кнопка из сообщения, отправленного версией до перехода на Remnawave 3.x:
-		// там в callback data лежал UUID пользователя, которого больше не существует.
 		b.logger.WithField("data", callback.Data).Warn("Telegram бот: устаревший callback data, кнопка недействительна")
-		_ = b.api.AnswerCallbackQuery(ctx, &telego.AnswerCallbackQueryParams{
-			CallbackQueryID: callback.ID,
-			Text:            i18n.T("callback.stale"),
-		})
+		b.answerCallback(ctx, callback.ID, i18n.T("callback.stale"))
 		return
 	}
 
@@ -312,51 +352,39 @@ func (b *Bot) handleCallback(ctx context.Context, callback *telego.CallbackQuery
 			b.logger.WithError(err).WithFields(logrus.Fields{
 				"action": action,
 				"userID": userID,
+				"admin":  callerID,
 			}).Error("Telegram бот: ошибка выполнения действия")
 
-			_ = b.api.AnswerCallbackQuery(ctx, &telego.AnswerCallbackQueryParams{
-				CallbackQueryID: callback.ID,
-				Text:            i18n.T("callback.error") + ": " + err.Error(),
-			})
+			b.answerCallback(ctx, callback.ID, i18n.T("callback.error")+": "+err.Error())
 			return
 		}
 	}
 
-	actionResult := FormatActionResult(action, adminName)
+	b.logger.WithFields(logrus.Fields{
+		"action": action,
+		"userID": userID,
+		"admin":  callerID,
+	}).Info("Telegram бот: действие выполнено администратором")
 
-	originalText := ""
-	if callback.Message != nil {
-		if msg, ok := callback.Message.(*telego.Message); ok {
-			originalText = msg.Text
-			if originalText == "" {
-				originalText = msg.Caption
-			}
+	msg, _ := callback.Message.(*telego.Message)
+	if msg != nil {
+		originalText := msg.Text
+		if originalText == "" {
+			originalText = msg.Caption
+		}
+		newText := escapeHTML(originalText) + FormatActionResult(action, adminName)
+
+		if _, err := b.api.EditMessageText(ctx, &telego.EditMessageTextParams{
+			ChatID:             tu.ID(msg.Chat.ID),
+			MessageID:          msg.MessageID,
+			Text:               newText,
+			ParseMode:          telego.ModeHTML,
+			LinkPreviewOptions: &telego.LinkPreviewOptions{IsDisabled: true},
+			ReplyMarkup:        &telego.InlineKeyboardMarkup{InlineKeyboard: [][]telego.InlineKeyboardButton{}},
+		}); err != nil {
+			b.logger.WithError(err).Error("Telegram бот: ошибка редактирования сообщения")
 		}
 	}
 
-	newText := originalText + actionResult
-	emptyMarkup := &telego.InlineKeyboardMarkup{
-		InlineKeyboard: [][]telego.InlineKeyboardButton{},
-	}
-
-	if callback.Message != nil {
-		if msg, ok := callback.Message.(*telego.Message); ok {
-			_, err := b.api.EditMessageText(ctx, &telego.EditMessageTextParams{
-				ChatID:             tu.ID(b.chatID),
-				MessageID:          msg.MessageID,
-				Text:               newText,
-				ParseMode:          telego.ModeHTML,
-				LinkPreviewOptions: &telego.LinkPreviewOptions{IsDisabled: true},
-				ReplyMarkup:        emptyMarkup,
-			})
-			if err != nil {
-				b.logger.WithError(err).Error("Telegram бот: ошибка редактирования сообщения")
-			}
-		}
-	}
-
-	_ = b.api.AnswerCallbackQuery(ctx, &telego.AnswerCallbackQueryParams{
-		CallbackQueryID: callback.ID,
-		Text:            i18n.T("callback.done"),
-	})
+	b.answerCallback(ctx, callback.ID, i18n.T("callback.done"))
 }

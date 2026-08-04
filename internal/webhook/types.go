@@ -12,8 +12,7 @@ type Payload struct {
 }
 
 type UserPayload struct {
-	UUID            string `json:"uuid"`
-	UserID          string `json:"user_id"`
+	UserID          int64  `json:"user_id"`
 	Username        string `json:"username"`
 	Email           string `json:"email,omitempty"`
 	TelegramID      int64  `json:"telegram_id,omitempty"`

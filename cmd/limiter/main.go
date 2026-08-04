@@ -159,25 +159,25 @@ func main() {
 	bot.SetSettingsProvider(settingsMgr)
 	bot.SetStatsHandler(mon.StatsText)
 
-	bot.SetActionHandler(func(ctx context.Context, action, userUUID, userID string) error {
+	bot.SetActionHandler(func(ctx context.Context, action string, userID int64) error {
 		switch action {
 		case "drop":
-			return apiClient.DropConnections(ctx, []string{userUUID})
+			return apiClient.DropConnections(ctx, []int64{userID})
 		case "disable":
-			return apiClient.DisableUser(ctx, userUUID)
+			return apiClient.DisableUser(ctx, userID)
 		case "disable_temp":
-			if err := apiClient.DisableUser(ctx, userUUID); err != nil {
+			if err := apiClient.DisableUser(ctx, userID); err != nil {
 				return err
 			}
 			if dur := cfgProvider.Load().AutoDisableDuration; dur > 0 {
 				duration := time.Duration(dur) * time.Minute
-				if err := redisCache.SetRestoreTimer(ctx, userUUID, duration); err != nil {
-					logger.WithError(err).WithField("uuid", userUUID).Error("Ошибка установки таймера восстановления (manual disable_temp)")
+				if err := redisCache.SetRestoreTimer(ctx, userID, duration); err != nil {
+					logger.WithError(err).WithField("userID", userID).Error("Ошибка установки таймера восстановления (manual disable_temp)")
 				}
 			}
 			return nil
 		case "enable":
-			return apiClient.EnableUser(ctx, userUUID)
+			return apiClient.EnableUser(ctx, userID)
 		case "ignore":
 			return redisCache.AddToWhitelist(ctx, userID)
 		case "ignore_temp":

@@ -54,13 +54,84 @@ func TestClient_GetNodes(t *testing.T) {
 	}
 }
 
+func TestClient_FetchUsersIPs(t *testing.T) {
+	const nodeUUID = "3f2504e0-4f89-11d3-9a0c-0305e82c3301"
+
+	var postCalls, resultCalls int
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/connections/by-node/"+nodeUUID:
+			postCalls++
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			w.Write([]byte(`{"response":{"jobId":"job-1"}}`))
+
+		case r.Method == http.MethodGet && r.URL.Path == "/api/connections/by-node/job-1":
+			resultCalls++
+			w.Header().Set("Content-Type", "application/json")
+			if resultCalls == 1 {
+				// Задание ещё выполняется.
+				w.Write([]byte(`{"response":{"isCompleted":false,"isFailed":false,"result":null}}`))
+				return
+			}
+			// userId приходит числом, а не строкой, как было до Remnawave 3.x.
+			w.Write([]byte(`{"response":{"isCompleted":true,"isFailed":false,"result":{
+				"success":true,
+				"nodeUuid":"` + nodeUUID + `",
+				"users":[
+					{"userId":42,"ips":[{"ip":"1.1.1.1","lastSeen":"2026-08-04T10:00:00.000Z"},{"ip":"2.2.2.2","lastSeen":"2026-08-04T10:01:00.000Z"}]},
+					{"userId":9007199254740993,"ips":[{"ip":"3.3.3.3","lastSeen":"2026-08-04T10:02:00.000Z"}]}
+				]
+			}}}`))
+
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "test-token")
+	entries, err := client.FetchUsersIPs(context.Background(), nodeUUID)
+	if err != nil {
+		t.Fatalf("FetchUsersIPs returned error: %v", err)
+	}
+
+	if postCalls != 1 {
+		t.Errorf("expected 1 job start, got %d", postCalls)
+	}
+	if resultCalls != 2 {
+		t.Errorf("expected 2 result polls, got %d", resultCalls)
+	}
+
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(entries))
+	}
+	if entries[0].UserID != 42 {
+		t.Errorf("expected userId 42, got %d", entries[0].UserID)
+	}
+	if len(entries[0].IPs) != 2 || entries[0].IPs[0].IP != "1.1.1.1" {
+		t.Errorf("unexpected ips for first entry: %+v", entries[0].IPs)
+	}
+	if entries[0].IPs[0].LastSeen.IsZero() {
+		t.Error("lastSeen was not parsed")
+	}
+	// ID больше 2^53 не должен терять точность (json.Number -> int64, а не float64).
+	if entries[1].UserID != 9007199254740993 {
+		t.Errorf("expected userId 9007199254740993, got %d", entries[1].UserID)
+	}
+}
+
 func TestClient_GetUserByID(t *testing.T) {
 	email := "user@example.com"
 	telegramID := int64(12345)
 	hwidLimit := 3
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/users/by-id/user-123" {
+		if r.URL.Path != "/api/users/42" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
 			return
@@ -73,7 +144,6 @@ func TestClient_GetUserByID(t *testing.T) {
 
 		resp := UserResponse{
 			Response: UserData{
-				UUID:            "uuid-abc",
 				ID:              42,
 				Username:        "testuser",
 				Status:          "ACTIVE",
@@ -91,13 +161,13 @@ func TestClient_GetUserByID(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClient(srv.URL, "test-token")
-	user, err := client.GetUserByID(context.Background(), "user-123")
+	user, err := client.GetUserByID(context.Background(), 42)
 	if err != nil {
 		t.Fatalf("GetUserByID returned error: %v", err)
 	}
 
-	if user.UUID != "uuid-abc" {
-		t.Errorf("expected uuid-abc, got %s", user.UUID)
+	if user.ID != 42 {
+		t.Errorf("expected id 42, got %d", user.ID)
 	}
 	if user.Username != "testuser" {
 		t.Errorf("expected testuser, got %s", user.Username)
@@ -112,7 +182,7 @@ func TestClient_GetUserByID(t *testing.T) {
 
 func TestClient_DisableUser(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/users/uuid-abc/actions/disable" {
+		if r.URL.Path != "/api/users/42/actions/disable" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
 			return
@@ -136,7 +206,7 @@ func TestClient_DisableUser(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClient(srv.URL, "test-token")
-	err := client.DisableUser(context.Background(), "uuid-abc")
+	err := client.DisableUser(context.Background(), 42)
 	if err != nil {
 		t.Fatalf("DisableUser returned error: %v", err)
 	}
@@ -144,7 +214,7 @@ func TestClient_DisableUser(t *testing.T) {
 
 func TestClient_EnableUser(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/users/uuid-abc/actions/enable" {
+		if r.URL.Path != "/api/users/42/actions/enable" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
 			return
@@ -168,7 +238,7 @@ func TestClient_EnableUser(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClient(srv.URL, "test-token")
-	err := client.EnableUser(context.Background(), "uuid-abc")
+	err := client.EnableUser(context.Background(), 42)
 	if err != nil {
 		t.Fatalf("EnableUser returned error: %v", err)
 	}
@@ -176,7 +246,7 @@ func TestClient_EnableUser(t *testing.T) {
 
 func TestClient_DropConnections(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/ip-control/drop-connections" {
+		if r.URL.Path != "/api/connections/drop" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
 			return
@@ -198,27 +268,24 @@ func TestClient_DropConnections(t *testing.T) {
 			return
 		}
 
-		if req.DropBy.By != "userUuids" {
-			t.Errorf("expected dropBy.by=userUuids, got %s", req.DropBy.By)
+		if req.DropBy.By != "userIds" {
+			t.Errorf("expected dropBy.by=userIds, got %s", req.DropBy.By)
 		}
-		if len(req.DropBy.UserUUIDs) != 2 {
-			t.Errorf("expected 2 userUuids, got %d", len(req.DropBy.UserUUIDs))
+		if len(req.DropBy.UserIDs) != 2 || req.DropBy.UserIDs[0] != 42 || req.DropBy.UserIDs[1] != 77 {
+			t.Errorf("unexpected userIds: %v", req.DropBy.UserIDs)
 		}
 		if req.TargetNodes.Target != "allNodes" {
 			t.Errorf("expected targetNodes.target=allNodes, got %s", req.TargetNodes.Target)
 		}
 
-		resp := DropConnectionsResponse{}
-		resp.Response.EventSent = true
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		w.WriteHeader(http.StatusAccepted)
 	})
 
 	srv := httptest.NewServer(handler)
 	defer srv.Close()
 
 	client := NewClient(srv.URL, "test-token")
-	err := client.DropConnections(context.Background(), []string{"uuid-1", "uuid-2"})
+	err := client.DropConnections(context.Background(), []int64{42, 77})
 	if err != nil {
 		t.Fatalf("DropConnections returned error: %v", err)
 	}

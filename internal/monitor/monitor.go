@@ -3,6 +3,7 @@ package monitor
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -152,7 +153,7 @@ func (m *Monitor) check(ctx context.Context) {
 
 	activeWindow := time.Duration(m.cfg.Load().ActiveIPWindow) * time.Second
 	cutoff := time.Now().Add(-activeWindow)
-	aggregated := make(map[string][]api.ActiveIP)
+	aggregated := make(map[int64][]api.ActiveIP)
 	whitelistedIPs := 0
 
 	for _, res := range results {
@@ -191,7 +192,7 @@ func (m *Monitor) check(ctx context.Context) {
 	}
 }
 
-func (m *Monitor) checkUser(ctx context.Context, userID string, activeIPs []api.ActiveIP) {
+func (m *Monitor) checkUser(ctx context.Context, userID int64, activeIPs []api.ActiveIP) {
 	cfg := m.cfg.Load()
 	uniqueMap := make(map[string]api.ActiveIP)
 	for _, ip := range activeIPs {
@@ -374,7 +375,7 @@ func (m *Monitor) handleSoftWarning(ctx context.Context, user *api.CachedUser, u
 	}
 }
 
-func (m *Monitor) getUser(ctx context.Context, userID string) (*api.CachedUser, error) {
+func (m *Monitor) getUser(ctx context.Context, userID int64) (*api.CachedUser, error) {
 	cached, err := m.cache.GetUser(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("cache get user: %w", err)
@@ -389,7 +390,6 @@ func (m *Monitor) getUser(ctx context.Context, userID string) (*api.CachedUser, 
 	}
 
 	cu := &api.CachedUser{
-		UUID:     userData.UUID,
 		UserID:   userID,
 		Username: userData.Username,
 		Status:   userData.Status,
@@ -429,27 +429,27 @@ func (m *Monitor) resolveLimit(cfg *config.Config, hwidDeviceLimit int) int {
 func (m *Monitor) handleManualAction(user *api.CachedUser, ips []api.ActiveIP, limit int, violationCount int64, subnetGroups, asnGroups int) {
 	cfg := m.cfg.Load()
 	text := telegram.FormatManualAlert(user, ips, limit, violationCount, m.location, subnetGroups, cfg.SubnetGrouping, asnGroups, cfg.ASNGrouping)
-	if err := m.bot.SendManualAlert(text, user.UUID, user.UserID, cfg.AutoDisableDuration, cfg.IgnoreDuration); err != nil {
+	if err := m.bot.SendManualAlert(text, user.UserID, cfg.AutoDisableDuration, cfg.IgnoreDuration); err != nil {
 		m.logger.WithError(err).WithField("userID", user.UserID).Error("Ошибка отправки manual alert")
 	}
 }
 
 func (m *Monitor) handleAutoAction(ctx context.Context, user *api.CachedUser, ips []api.ActiveIP, limit int, violationCount int64, subnetGroups, asnGroups int) {
 	cfg := m.cfg.Load()
-	if err := m.api.DisableUser(ctx, user.UUID); err != nil {
+	if err := m.api.DisableUser(ctx, user.UserID); err != nil {
 		m.logger.WithError(err).WithField("userID", user.UserID).Error("Ошибка отключения пользователя")
 		return
 	}
 
 	if cfg.AutoDisableDuration > 0 {
 		duration := time.Duration(cfg.AutoDisableDuration) * time.Minute
-		if err := m.cache.SetRestoreTimer(ctx, user.UUID, duration); err != nil {
+		if err := m.cache.SetRestoreTimer(ctx, user.UserID, duration); err != nil {
 			m.logger.WithError(err).WithField("userID", user.UserID).Error("Ошибка установки таймера восстановления")
 		}
 	}
 
 	text := telegram.FormatAutoAlert(user, ips, limit, cfg.AutoDisableDuration, violationCount, m.location, subnetGroups, cfg.SubnetGrouping, asnGroups, cfg.ASNGrouping)
-	if err := m.bot.SendAutoAlert(text, user.UUID); err != nil {
+	if err := m.bot.SendAutoAlert(text, user.UserID); err != nil {
 		m.logger.WithError(err).WithField("userID", user.UserID).Error("Ошибка отправки auto alert")
 	}
 }
@@ -493,7 +493,6 @@ func (m *Monitor) sendWebhook(ctx context.Context, event string, user *api.Cache
 		Event:      event,
 		ActionMode: cfg.ActionMode,
 		User: webhook.UserPayload{
-			UUID:            user.UUID,
 			UserID:          user.UserID,
 			Username:        user.Username,
 			Email:           user.Email,
@@ -596,15 +595,23 @@ func (m *Monitor) restoreLoop(ctx context.Context) {
 				continue
 			}
 
-			for _, uuid := range expired {
-				if err := m.api.EnableUser(ctx, uuid); err != nil {
-					m.logger.WithError(err).WithField("uuid", uuid).Error("Ошибка включения пользователя по таймеру")
+			for _, member := range expired {
+				userID, err := strconv.ParseInt(member, 10, 64)
+				if err != nil {
+					// Запись, добавленная версией до перехода на Remnawave 3.x:
+					// там в очереди лежал UUID, которого в панели больше нет.
+					m.logger.WithField("member", member).Warn("Устаревшая запись в очереди восстановления пропущена, включите пользователя вручную")
 					continue
 				}
 
-				m.logger.WithField("uuid", uuid).Info("Пользователь автоматически включён по таймеру")
+				if err := m.api.EnableUser(ctx, userID); err != nil {
+					m.logger.WithError(err).WithField("userID", userID).Error("Ошибка включения пользователя по таймеру")
+					continue
+				}
 
-				msg := fmt.Sprintf(i18n.T("restore.message"), uuid)
+				m.logger.WithField("userID", userID).Info("Пользователь автоматически включён по таймеру")
+
+				msg := fmt.Sprintf(i18n.T("restore.message"), userID)
 				if err := m.bot.SendMessage(msg); err != nil {
 					m.logger.WithError(err).Error("Ошибка отправки уведомления о восстановлении")
 				}

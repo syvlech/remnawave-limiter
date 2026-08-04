@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -214,9 +215,9 @@ func (c *Client) GetActiveNodes(ctx context.Context) ([]Node, error) {
 }
 
 func (c *Client) FetchUsersIPs(ctx context.Context, nodeUUID string) ([]UserIPEntry, error) {
-	data, err := c.doRequest(ctx, http.MethodPost, "/api/ip-control/fetch-users-ips/"+nodeUUID, nil)
+	data, err := c.doRequest(ctx, http.MethodPost, "/api/connections/by-node/"+nodeUUID, nil)
 	if err != nil {
-		return nil, fmt.Errorf("start fetch-users-ips job: %w", err)
+		return nil, fmt.Errorf("start connections/by-node job: %w", err)
 	}
 
 	var jobResp JobResponse
@@ -229,7 +230,7 @@ func (c *Client) FetchUsersIPs(ctx context.Context, nodeUUID string) ([]UserIPEn
 		return nil, fmt.Errorf("empty job ID in response")
 	}
 
-	c.logDebug(fmt.Sprintf("Started fetch-users-ips job %s for node %s", jobID, nodeUUID))
+	c.logDebug(fmt.Sprintf("Started connections/by-node job %s for node %s", jobID, nodeUUID))
 
 	for i := 0; i < jobPollMaxTries; i++ {
 		select {
@@ -238,7 +239,7 @@ func (c *Client) FetchUsersIPs(ctx context.Context, nodeUUID string) ([]UserIPEn
 		case <-time.After(jobPollInterval):
 		}
 
-		data, err := c.doRequest(ctx, http.MethodGet, "/api/ip-control/fetch-users-ips/result/"+jobID, nil)
+		data, err := c.doRequest(ctx, http.MethodGet, "/api/connections/by-node/"+jobID, nil)
 		if err != nil {
 			return nil, fmt.Errorf("poll job %s result: %w", jobID, err)
 		}
@@ -267,10 +268,10 @@ func (c *Client) FetchUsersIPs(ctx context.Context, nodeUUID string) ([]UserIPEn
 	return nil, fmt.Errorf("job %s timed out after %d polls", jobID, jobPollMaxTries)
 }
 
-func (c *Client) GetUserByID(ctx context.Context, id string) (*UserData, error) {
-	data, err := c.doRequest(ctx, http.MethodGet, "/api/users/by-id/"+id, nil)
+func (c *Client) GetUserByID(ctx context.Context, userID int64) (*UserData, error) {
+	data, err := c.doRequest(ctx, http.MethodGet, "/api/users/"+strconv.FormatInt(userID, 10), nil)
 	if err != nil {
-		return nil, fmt.Errorf("get user by id %s: %w", id, err)
+		return nil, fmt.Errorf("get user by id %d: %w", userID, err)
 	}
 
 	var resp UserResponse
@@ -281,34 +282,39 @@ func (c *Client) GetUserByID(ctx context.Context, id string) (*UserData, error) 
 	return &resp.Response, nil
 }
 
-func (c *Client) DisableUser(ctx context.Context, uuid string) error {
-	_, err := c.doRequest(ctx, http.MethodPost, "/api/users/"+uuid+"/actions/disable", nil)
+func (c *Client) DisableUser(ctx context.Context, userID int64) error {
+	_, err := c.doRequest(ctx, http.MethodPost, "/api/users/"+strconv.FormatInt(userID, 10)+"/actions/disable", nil)
 	if err != nil {
-		return fmt.Errorf("disable user %s: %w", uuid, err)
+		return fmt.Errorf("disable user %d: %w", userID, err)
 	}
 	return nil
 }
 
-func (c *Client) EnableUser(ctx context.Context, uuid string) error {
-	_, err := c.doRequest(ctx, http.MethodPost, "/api/users/"+uuid+"/actions/enable", nil)
+func (c *Client) EnableUser(ctx context.Context, userID int64) error {
+	_, err := c.doRequest(ctx, http.MethodPost, "/api/users/"+strconv.FormatInt(userID, 10)+"/actions/enable", nil)
 	if err != nil {
-		return fmt.Errorf("enable user %s: %w", uuid, err)
+		return fmt.Errorf("enable user %d: %w", userID, err)
 	}
 	return nil
 }
 
-func (c *Client) DropConnections(ctx context.Context, userUUIDs []string) error {
+func (c *Client) DropConnections(ctx context.Context, userIDs []int64) error {
+	// Панель требует непустой userIds, пустой запрос отклоняется с 400.
+	if len(userIDs) == 0 {
+		return nil
+	}
+
 	req := DropConnectionsRequest{
 		DropBy: DropBy{
-			By:        "userUuids",
-			UserUUIDs: userUUIDs,
+			By:      "userIds",
+			UserIDs: userIDs,
 		},
 		TargetNodes: TargetNodes{
 			Target: "allNodes",
 		},
 	}
 
-	_, err := c.doRequest(ctx, http.MethodPost, "/api/ip-control/drop-connections", req)
+	_, err := c.doRequest(ctx, http.MethodPost, "/api/connections/drop", req)
 	if err != nil {
 		return fmt.Errorf("drop connections: %w", err)
 	}

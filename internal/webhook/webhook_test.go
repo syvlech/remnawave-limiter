@@ -26,8 +26,7 @@ func testPayload() *Payload {
 		Event:      "violation_detected",
 		ActionMode: "auto",
 		User: UserPayload{
-			UUID:     "uuid-123",
-			UserID:   "42",
+			UserID:   42,
 			Username: "testuser",
 			Email:    "test@example.com",
 		},

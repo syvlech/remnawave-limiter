@@ -33,6 +33,12 @@ type Cache struct {
 	client *redis.Client
 }
 
+// formatUserID даёт то же десятичное представление ID, что использовалось до
+// перехода на Remnawave 3.x, поэтому существующие ключи Redis остаются валидными.
+func formatUserID(userID int64) string {
+	return strconv.FormatInt(userID, 10)
+}
+
 func New(redisURL string) (*Cache, error) {
 	opts, err := redis.ParseURL(redisURL)
 	if err != nil {
@@ -49,16 +55,16 @@ func (c *Cache) Close() error {
 	return c.client.Close()
 }
 
-func (c *Cache) SetUser(ctx context.Context, userID string, user *api.CachedUser, ttl time.Duration) error {
+func (c *Cache) SetUser(ctx context.Context, userID int64, user *api.CachedUser, ttl time.Duration) error {
 	data, err := json.Marshal(user)
 	if err != nil {
 		return fmt.Errorf("marshal user: %w", err)
 	}
-	return c.client.Set(ctx, prefixUser+userID, data, ttl).Err()
+	return c.client.Set(ctx, prefixUser+formatUserID(userID), data, ttl).Err()
 }
 
-func (c *Cache) GetUser(ctx context.Context, userID string) (*api.CachedUser, error) {
-	data, err := c.client.Get(ctx, prefixUser+userID).Bytes()
+func (c *Cache) GetUser(ctx context.Context, userID int64) (*api.CachedUser, error) {
+	data, err := c.client.Get(ctx, prefixUser+formatUserID(userID)).Bytes()
 	if err == redis.Nil {
 		return nil, nil
 	}
@@ -72,12 +78,12 @@ func (c *Cache) GetUser(ctx context.Context, userID string) (*api.CachedUser, er
 	return &user, nil
 }
 
-func (c *Cache) SetCooldown(ctx context.Context, userID string, ttl time.Duration) error {
-	return c.client.Set(ctx, prefixCooldown+userID, "1", ttl).Err()
+func (c *Cache) SetCooldown(ctx context.Context, userID int64, ttl time.Duration) error {
+	return c.client.Set(ctx, prefixCooldown+formatUserID(userID), "1", ttl).Err()
 }
 
-func (c *Cache) IsCooldownActive(ctx context.Context, userID string) (bool, error) {
-	_, err := c.client.Get(ctx, prefixCooldown+userID).Result()
+func (c *Cache) IsCooldownActive(ctx context.Context, userID int64) (bool, error) {
+	_, err := c.client.Get(ctx, prefixCooldown+formatUserID(userID)).Result()
 	if err == redis.Nil {
 		return false, nil
 	}
@@ -87,12 +93,12 @@ func (c *Cache) IsCooldownActive(ctx context.Context, userID string) (bool, erro
 	return true, nil
 }
 
-func (c *Cache) SetSoftCooldown(ctx context.Context, userID string, ttl time.Duration) error {
-	return c.client.Set(ctx, prefixSoftCooldown+userID, "1", ttl).Err()
+func (c *Cache) SetSoftCooldown(ctx context.Context, userID int64, ttl time.Duration) error {
+	return c.client.Set(ctx, prefixSoftCooldown+formatUserID(userID), "1", ttl).Err()
 }
 
-func (c *Cache) IsSoftCooldownActive(ctx context.Context, userID string) (bool, error) {
-	_, err := c.client.Get(ctx, prefixSoftCooldown+userID).Result()
+func (c *Cache) IsSoftCooldownActive(ctx context.Context, userID int64) (bool, error) {
+	_, err := c.client.Get(ctx, prefixSoftCooldown+formatUserID(userID)).Result()
 	if err == redis.Nil {
 		return false, nil
 	}
@@ -102,22 +108,23 @@ func (c *Cache) IsSoftCooldownActive(ctx context.Context, userID string) (bool, 
 	return true, nil
 }
 
-func (c *Cache) AddToWhitelist(ctx context.Context, userID string) error {
-	return c.client.SAdd(ctx, keyWhitelist, userID).Err()
+func (c *Cache) AddToWhitelist(ctx context.Context, userID int64) error {
+	return c.client.SAdd(ctx, keyWhitelist, formatUserID(userID)).Err()
 }
 
-func (c *Cache) AddToWhitelistTemp(ctx context.Context, userID string, ttl time.Duration) error {
-	return c.client.Set(ctx, prefixWhitelistTemp+userID, "1", ttl).Err()
+func (c *Cache) AddToWhitelistTemp(ctx context.Context, userID int64, ttl time.Duration) error {
+	return c.client.Set(ctx, prefixWhitelistTemp+formatUserID(userID), "1", ttl).Err()
 }
 
-func (c *Cache) RemoveFromWhitelist(ctx context.Context, userID string) error {
-	return c.client.SRem(ctx, keyWhitelist, userID).Err()
+func (c *Cache) RemoveFromWhitelist(ctx context.Context, userID int64) error {
+	return c.client.SRem(ctx, keyWhitelist, formatUserID(userID)).Err()
 }
 
-func (c *Cache) IsWhitelisted(ctx context.Context, userID string) (bool, error) {
+func (c *Cache) IsWhitelisted(ctx context.Context, userID int64) (bool, error) {
+	id := formatUserID(userID)
 	pipe := c.client.Pipeline()
-	permCmd := pipe.SIsMember(ctx, keyWhitelist, userID)
-	tempCmd := pipe.Exists(ctx, prefixWhitelistTemp+userID)
+	permCmd := pipe.SIsMember(ctx, keyWhitelist, id)
+	tempCmd := pipe.Exists(ctx, prefixWhitelistTemp+id)
 	if _, err := pipe.Exec(ctx); err != nil {
 		return false, fmt.Errorf("whitelist pipeline: %w", err)
 	}
@@ -155,11 +162,11 @@ func (c *Cache) ClearConfigOverrides(ctx context.Context) error {
 	return c.client.Del(ctx, keyConfigOverrides).Err()
 }
 
-func (c *Cache) SetRestoreTimer(ctx context.Context, uuid string, duration time.Duration) error {
+func (c *Cache) SetRestoreTimer(ctx context.Context, userID int64, duration time.Duration) error {
 	expiry := float64(time.Now().Add(duration).Unix())
 	return c.client.ZAdd(ctx, keyRestoreQ, redis.Z{
 		Score:  expiry,
-		Member: uuid,
+		Member: formatUserID(userID),
 	}).Err()
 }
 
@@ -184,8 +191,8 @@ func (c *Cache) GetExpiredRestoreTimers(ctx context.Context) ([]string, error) {
 	return result, nil
 }
 
-func (c *Cache) IncrViolationCount(ctx context.Context, userID string) (int64, error) {
-	key := prefixViolationCount + userID
+func (c *Cache) IncrViolationCount(ctx context.Context, userID int64) (int64, error) {
+	key := prefixViolationCount + formatUserID(userID)
 	count, err := c.client.Incr(ctx, key).Result()
 	if err != nil {
 		return 0, fmt.Errorf("incr violation count: %w", err)
@@ -194,8 +201,8 @@ func (c *Cache) IncrViolationCount(ctx context.Context, userID string) (int64, e
 	return count, nil
 }
 
-func (c *Cache) GetViolationCount(ctx context.Context, userID string) (int64, error) {
-	count, err := c.client.Get(ctx, prefixViolationCount+userID).Int64()
+func (c *Cache) GetViolationCount(ctx context.Context, userID int64) (int64, error) {
+	count, err := c.client.Get(ctx, prefixViolationCount+formatUserID(userID)).Int64()
 	if err == redis.Nil {
 		return 0, nil
 	}
@@ -205,8 +212,8 @@ func (c *Cache) GetViolationCount(ctx context.Context, userID string) (int64, er
 	return count, nil
 }
 
-func (c *Cache) IncrThresholdCount(ctx context.Context, userID string, window time.Duration) (int64, error) {
-	key := prefixViolationThreshold + userID
+func (c *Cache) IncrThresholdCount(ctx context.Context, userID int64, window time.Duration) (int64, error) {
+	key := prefixViolationThreshold + formatUserID(userID)
 	count, err := c.client.Incr(ctx, key).Result()
 	if err != nil {
 		return 0, fmt.Errorf("incr threshold count: %w", err)
@@ -215,8 +222,8 @@ func (c *Cache) IncrThresholdCount(ctx context.Context, userID string, window ti
 	return count, nil
 }
 
-func (c *Cache) ResetThresholdCount(ctx context.Context, userID string) error {
-	return c.client.Del(ctx, prefixViolationThreshold+userID).Err()
+func (c *Cache) ResetThresholdCount(ctx context.Context, userID int64) error {
+	return c.client.Del(ctx, prefixViolationThreshold+formatUserID(userID)).Err()
 }
 
 type ViolatorStat struct {
@@ -231,15 +238,16 @@ type ViolationStats struct {
 	Top       []ViolatorStat
 }
 
-func (c *Cache) RecordViolation(ctx context.Context, userID, username string) error {
+func (c *Cache) RecordViolation(ctx context.Context, userID int64, username string) error {
 	now := time.Now()
-	member := fmt.Sprintf("%d:%s", now.UnixNano(), userID)
+	id := formatUserID(userID)
+	member := fmt.Sprintf("%d:%s", now.UnixNano(), id)
 	cutoff := strconv.FormatInt(now.Add(-statsRetention).Unix(), 10)
 
 	pipe := c.client.Pipeline()
 	pipe.ZAdd(ctx, keyStatsEvents, redis.Z{Score: float64(now.Unix()), Member: member})
 	if username != "" {
-		pipe.HSet(ctx, keyStatsUsernames, userID, username)
+		pipe.HSet(ctx, keyStatsUsernames, id, username)
 	}
 	pipe.ZRemRangeByScore(ctx, keyStatsEvents, "-inf", "("+cutoff)
 	if _, err := pipe.Exec(ctx); err != nil {

@@ -40,8 +40,38 @@ A single instance alongside the panel or on any server. No node installation nee
 ## Requirements
 
 - Docker and Docker Compose
-- Remnawave 2.7.0+ with an API token
+- **Remnawave 3.0.0+** with an API token (scopes `connections:*` and `users:*`)
 - Telegram bot ([@BotFather](https://t.me/BotFather))
+
+### Which limiter version to use
+
+| Remnawave panel version | limiter version |
+|---|---|
+| **3.0.0 and newer** | **4.0.0+** — current, `latest` tag |
+| below 3.0.0 (the 2.x line) | [3.0.0](https://github.com/syvlech/remnawave-limiter/releases/tag/3.0.0) — last release supporting 2.x panels |
+
+The versions are not interchangeable: Remnawave 3.0.0 renamed the `ip-control` module to `connections` and identifies users by a numeric `id` instead of `uuid`, removing the old endpoints. So limiter 4.0.0+ does not work with a 2.x panel, and limiter 3.0.0 does not work with a 3.x one.
+
+If your panel is not upgraded yet, pin the image to the 3.0.0 release in `docker-compose.yml`:
+
+```yaml
+image: ghcr.io/syvlech/remnawave-limiter:b422f43
+```
+
+`b422f43` is the 3.0.0 release commit. There is no dedicated `3.0.0` image tag in ghcr: CI only builds semver tags for `v*` refs, while the release is tagged `3.0.0` without the prefix.
+
+## Upgrading from limiter 3.x to 4.0.0
+
+1. Upgrade the panel to Remnawave 3.0.0+.
+2. Reissue (or edit) the API token in the panel: the `ip-control:*` scope was renamed to `connections:*`. Without this every request returns 403.
+3. Update limiter and restart.
+
+No Redis migration is required: the numeric user ID is written to the same keys as before (`user:<id>`, `cooldown:<id>`, `whitelist`, stats). Exceptions:
+
+- **Restore queue.** `restore:queue` entries written by 3.x contain UUIDs and are skipped with a log warning — those users must be re-enabled manually. To clear the queue up front: `redis-cli DEL restore:queue`.
+- **Buttons in old Telegram messages.** Alerts sent before the upgrade carry a UUID in their callback data; pressing them answers "Button is outdated".
+- **`WHITELIST_USER_IDS`** must contain numeric user IDs (as before); UUIDs in that list will never match.
+- **Webhook.** The `user.uuid` field is gone and `user.user_id` is now a number rather than a string — update your receiver.
 
 ## Installation
 
@@ -215,8 +245,7 @@ On a violation the limiter can send an HTTP POST to `WEBHOOK_URL` (works in both
   "event": "violation_detected",
   "action_mode": "auto",
   "user": {
-    "uuid": "550e8400-e29b-41d4-a716-446655440000",
-    "user_id": "123",
+    "user_id": 123,
     "username": "john",
     "email": "john@example.com",
     "telegram_id": 123456789,
@@ -242,7 +271,7 @@ On a violation the limiter can send an HTTP POST to `WEBHOOK_URL` (works in both
 |-------|-------------|
 | `event` | `violation_detected` on a ban; `soft_violation_detected` for a within-tolerance soft warning (`AUTO_NOTIFY_SOFT`) |
 | `action_mode` | `manual` or `auto` |
-| `user` | User data (UUID, username, email, telegram_id, subscription_url) |
+| `user` | User data (user_id, username, email, telegram_id, subscription_url) |
 | `violation.ips` | Active IPs with node name and last activity time |
 | `violation.ip_count` | Number of unique IPs |
 | `violation.device_limit` / `tolerance` / `effective_limit` | Limit, tolerance, and effective limit (`device_limit + tolerance`) |

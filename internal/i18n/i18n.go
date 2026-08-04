@@ -41,6 +41,7 @@ var translations = map[string]map[string]string{
 		"callback.no_access": "⛔ Нет доступа",
 		"callback.done":      "✅ Выполнено",
 		"callback.error":     "❌ Ошибка",
+		"callback.stale":     "⚠️ Кнопка устарела",
 
 		"command.settings":      "⚙️ Настройки лимитера",
 		"command.stats":         "📊 Статистика нарушений",
@@ -87,7 +88,7 @@ var translations = map[string]map[string]string{
 		"setting.ASN_GROUPING":               "Группировка по ASN",
 		"setting.DAILY_REPORT":               "Ежедневный отчёт",
 
-		"restore.message": "🔓 Подписка <code>%s</code> автоматически включена по таймеру",
+		"restore.message": "🔓 Подписка <code>%d</code> автоматически включена по таймеру",
 
 		"duration.forever": "навсегда",
 		"duration.min":     "мин",
@@ -163,6 +164,7 @@ var translations = map[string]map[string]string{
 		"callback.no_access": "⛔ Access denied",
 		"callback.done":      "✅ Done",
 		"callback.error":     "❌ Error",
+		"callback.stale":     "⚠️ Button is outdated",
 
 		"command.settings":      "⚙️ Limiter settings",
 		"command.stats":         "📊 Violation statistics",
@@ -209,7 +211,7 @@ var translations = map[string]map[string]string{
 		"setting.ASN_GROUPING":               "ASN grouping",
 		"setting.DAILY_REPORT":               "Daily report",
 
-		"restore.message": "🔓 Subscription <code>%s</code> automatically enabled by timer",
+		"restore.message": "🔓 Subscription <code>%d</code> automatically enabled by timer",
 
 		"duration.forever": "forever",
 		"duration.min":     "min",

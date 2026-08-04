@@ -140,7 +140,7 @@ func countUniqueASN(ips []api.ActiveIP) int {
 	return len(seen)
 }
 
-func FormatActionResult(action, adminName, username string) string {
+func FormatActionResult(action, adminName string) string {
 	var msg string
 	switch action {
 	case "drop":

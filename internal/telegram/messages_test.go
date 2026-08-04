@@ -17,8 +17,7 @@ func init() {
 func TestFormatManualAlert(t *testing.T) {
 	loc := time.UTC
 	user := &api.CachedUser{
-		UUID:            "uuid-123",
-		UserID:          "1234",
+		UserID:          1234,
 		Username:        "testuser",
 		Email:           "test@example.com",
 		SubscriptionURL: "https://example.com/sub/123",
@@ -67,7 +66,7 @@ func TestFormatManualAlert(t *testing.T) {
 
 func TestFormatManualAlert_IPWithoutASN_OmitsASNPart(t *testing.T) {
 	loc := time.UTC
-	user := &api.CachedUser{UUID: "u", UserID: "1", Username: "u"}
+	user := &api.CachedUser{UserID: 1, Username: "u"}
 	ips := []api.ActiveIP{{IP: "10.0.0.1", NodeName: "Local", NodeUUID: "n"}}
 
 	result := FormatManualAlert(user, ips, 1, 1, loc, 0, false, 0, false)
@@ -82,7 +81,7 @@ func TestFormatManualAlert_IPWithoutASN_OmitsASNPart(t *testing.T) {
 
 func TestFormatManualAlert_IPWithASN_IncludesOrgDashFormat(t *testing.T) {
 	loc := time.UTC
-	user := &api.CachedUser{UUID: "u", UserID: "1", Username: "u"}
+	user := &api.CachedUser{UserID: 1, Username: "u"}
 	ips := []api.ActiveIP{{IP: "1.2.3.4", NodeName: "Chicago-1", NodeUUID: "n", ASN: 13335, ASNOrg: "Cloudflare, Inc."}}
 
 	result := FormatManualAlert(user, ips, 1, 1, loc, 0, false, 0, false)
@@ -96,8 +95,7 @@ func TestFormatManualAlert_IPWithASN_IncludesOrgDashFormat(t *testing.T) {
 func TestFormatAutoAlert(t *testing.T) {
 	loc := time.UTC
 	user := &api.CachedUser{
-		UUID:     "uuid-456",
-		UserID:   "5678",
+		UserID:   5678,
 		Username: "autouser",
 		Email:    "auto@example.com",
 	}
@@ -126,7 +124,7 @@ func TestFormatAutoAlert(t *testing.T) {
 
 func TestFormatAutoAlert_Permanent(t *testing.T) {
 	loc := time.UTC
-	user := &api.CachedUser{UUID: "u", UserID: "9", Username: "permuser"}
+	user := &api.CachedUser{UserID: 9, Username: "permuser"}
 	ips := []api.ActiveIP{{IP: "7.7.7.7", NodeName: "Node-JP", NodeUUID: "n7"}}
 
 	result := FormatAutoAlert(user, ips, 1, 0, 1, loc, 0, false, 0, false)
@@ -141,7 +139,7 @@ func TestFormatManualAlert_English(t *testing.T) {
 	defer i18n.SetLanguage("ru")
 
 	loc := time.UTC
-	user := &api.CachedUser{UUID: "u", UserID: "e", Username: "enuser"}
+	user := &api.CachedUser{UserID: 7, Username: "enuser"}
 	ips := []api.ActiveIP{{IP: "8.8.8.8", NodeName: "Node-US", NodeUUID: "n8"}}
 
 	result := FormatManualAlert(user, ips, 2, 1, loc, 0, false, 0, false)
@@ -163,7 +161,7 @@ func TestFormatManualAlert_English(t *testing.T) {
 
 func TestFormatManualAlert_SubnetGroupingHeader(t *testing.T) {
 	loc := time.UTC
-	user := &api.CachedUser{UUID: "u", UserID: "1", Username: "u"}
+	user := &api.CachedUser{UserID: 1, Username: "u"}
 	ips := []api.ActiveIP{
 		{IP: "1.1.1.1", NodeName: "A", NodeUUID: "n", ASN: 13335},
 		{IP: "1.1.1.2", NodeName: "A", NodeUUID: "n", ASN: 13335},
@@ -182,7 +180,7 @@ func TestFormatManualAlert_SubnetGroupingHeader(t *testing.T) {
 
 func TestFormatManualAlert_NoASN_OmitsCount(t *testing.T) {
 	loc := time.UTC
-	user := &api.CachedUser{UUID: "u", UserID: "1", Username: "u"}
+	user := &api.CachedUser{UserID: 1, Username: "u"}
 	ips := []api.ActiveIP{
 		{IP: "1.1.1.1", NodeName: "A", NodeUUID: "n"},
 		{IP: "2.2.2.2", NodeName: "A", NodeUUID: "n"},
@@ -197,7 +195,7 @@ func TestFormatManualAlert_NoASN_OmitsCount(t *testing.T) {
 
 func TestFormatAutoAlert_ASNCount(t *testing.T) {
 	loc := time.UTC
-	user := &api.CachedUser{UUID: "u", UserID: "9", Username: "autouser"}
+	user := &api.CachedUser{UserID: 9, Username: "autouser"}
 	ips := []api.ActiveIP{
 		{IP: "5.5.5.5", NodeName: "Node-FR", NodeUUID: "n5", ASN: 13335},
 		{IP: "6.6.6.6", NodeName: "Node-UK", NodeUUID: "n6", ASN: 24940},
@@ -212,7 +210,7 @@ func TestFormatAutoAlert_ASNCount(t *testing.T) {
 
 func TestFormatManualAlert_ASNGroupingHeader(t *testing.T) {
 	loc := time.UTC
-	user := &api.CachedUser{UUID: "u", UserID: "1", Username: "u"}
+	user := &api.CachedUser{UserID: 1, Username: "u"}
 	ips := []api.ActiveIP{
 		{IP: "1.1.1.1", NodeName: "A", NodeUUID: "n", ASN: 13335},
 		{IP: "1.1.1.2", NodeName: "A", NodeUUID: "n", ASN: 13335},
@@ -234,7 +232,7 @@ func TestFormatManualAlert_ASNGroupingHeader(t *testing.T) {
 
 func TestFormatManualAlert_SubnetGroupingDisabled_NoSubnetLine(t *testing.T) {
 	loc := time.UTC
-	user := &api.CachedUser{UUID: "u", UserID: "1", Username: "u"}
+	user := &api.CachedUser{UserID: 1, Username: "u"}
 	ips := []api.ActiveIP{{IP: "1.1.1.1", NodeName: "A", NodeUUID: "n"}}
 
 	result := FormatManualAlert(user, ips, 1, 1, loc, 0, false, 0, false)
@@ -268,7 +266,7 @@ func TestTruncateASNOrg(t *testing.T) {
 
 func TestFormatManualAlert_LongASNOrgIsTruncated(t *testing.T) {
 	loc := time.UTC
-	user := &api.CachedUser{UUID: "u", UserID: "1", Username: "u"}
+	user := &api.CachedUser{UserID: 1, Username: "u"}
 	longOrg := "Amazon Data Services Ireland Limited / AWS EMEA SARL"
 	ips := []api.ActiveIP{{IP: "52.0.0.1", NodeName: "N", NodeUUID: "n", ASN: 16509, ASNOrg: longOrg}}
 
@@ -370,23 +368,22 @@ func TestCountUniqueASN(t *testing.T) {
 
 func TestFormatActionResult(t *testing.T) {
 	tests := []struct {
-		action   string
-		admin    string
-		username string
-		want     string
+		action string
+		admin  string
+		want   string
 	}{
-		{"drop", "admin1", "user1", "Подключения сброшены"},
-		{"disable", "admin2", "user2", "Подписка отключена"},
-		{"ignore", "admin3", "user3", "Добавлен в whitelist"},
-		{"ignore_temp", "admin5", "user5", "Добавлен в whitelist временно"},
-		{"enable", "admin4", "user4", "Подписка включена"},
+		{"drop", "admin1", "Подключения сброшены"},
+		{"disable", "admin2", "Подписка отключена"},
+		{"ignore", "admin3", "Добавлен в whitelist"},
+		{"ignore_temp", "admin5", "Добавлен в whitelist временно"},
+		{"enable", "admin4", "Подписка включена"},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.action, func(t *testing.T) {
-			result := FormatActionResult(tc.action, tc.admin, tc.username)
+			result := FormatActionResult(tc.action, tc.admin)
 			if !strings.Contains(result, tc.want) {
-				t.Errorf("FormatActionResult(%q, %q, %q) = %q, want to contain %q", tc.action, tc.admin, tc.username, result, tc.want)
+				t.Errorf("FormatActionResult(%q, %q) = %q, want to contain %q", tc.action, tc.admin, result, tc.want)
 			}
 			if !strings.Contains(result, tc.admin) {
 				t.Errorf("expected result to contain admin name %q", tc.admin)

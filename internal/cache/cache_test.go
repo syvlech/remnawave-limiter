@@ -35,13 +35,80 @@ func setupTestCache(t *testing.T) *Cache {
 	return c
 }
 
+// Переход на Remnawave 3.x сменил тип ID пользователя со строки на число, но
+// десятичное представление осталось прежним. Тест фиксирует, что имена ключей не
+// изменились, — иначе при обновлении потребовалась бы миграция данных в Redis.
+func TestCache_KeyNamesUnchangedAfterV3(t *testing.T) {
+	c := setupTestCache(t)
+	ctx := context.Background()
+
+	const userID int64 = 456
+
+	if err := c.SetUser(ctx, userID, &api.CachedUser{UserID: userID}, time.Minute); err != nil {
+		t.Fatalf("SetUser error: %v", err)
+	}
+	if err := c.SetCooldown(ctx, userID, time.Minute); err != nil {
+		t.Fatalf("SetCooldown error: %v", err)
+	}
+	if err := c.SetSoftCooldown(ctx, userID, time.Minute); err != nil {
+		t.Fatalf("SetSoftCooldown error: %v", err)
+	}
+	if _, err := c.IncrViolationCount(ctx, userID); err != nil {
+		t.Fatalf("IncrViolationCount error: %v", err)
+	}
+	if _, err := c.IncrThresholdCount(ctx, userID, time.Minute); err != nil {
+		t.Fatalf("IncrThresholdCount error: %v", err)
+	}
+	if err := c.AddToWhitelistTemp(ctx, userID, time.Minute); err != nil {
+		t.Fatalf("AddToWhitelistTemp error: %v", err)
+	}
+
+	for _, key := range []string{
+		"user:456",
+		"cooldown:456",
+		"cooldown:soft:456",
+		"violations:count:456",
+		"violations:threshold:456",
+		"whitelist:temp:456",
+	} {
+		n, err := c.client.Exists(ctx, key).Result()
+		if err != nil {
+			t.Fatalf("Exists(%q) error: %v", key, err)
+		}
+		if n != 1 {
+			t.Errorf("ожидался ключ %q, но его нет", key)
+		}
+	}
+
+	if err := c.AddToWhitelist(ctx, userID); err != nil {
+		t.Fatalf("AddToWhitelist error: %v", err)
+	}
+	inSet, err := c.client.SIsMember(ctx, keyWhitelist, "456").Result()
+	if err != nil {
+		t.Fatalf("SIsMember error: %v", err)
+	}
+	if !inSet {
+		t.Error(`ожидался member "456" в множестве whitelist`)
+	}
+
+	if err := c.SetRestoreTimer(ctx, userID, -time.Second); err != nil {
+		t.Fatalf("SetRestoreTimer error: %v", err)
+	}
+	expired, err := c.GetExpiredRestoreTimers(ctx)
+	if err != nil {
+		t.Fatalf("GetExpiredRestoreTimers error: %v", err)
+	}
+	if len(expired) != 1 || expired[0] != "456" {
+		t.Errorf(`ожидался member "456" в restore:queue, получено %v`, expired)
+	}
+}
+
 func TestCache_UserData(t *testing.T) {
 	c := setupTestCache(t)
 	ctx := context.Background()
 
 	user := &api.CachedUser{
-		UUID:            "uuid-123",
-		UserID:          "user-456",
+		UserID:          456,
 		Username:        "testuser",
 		Email:           "test@example.com",
 		TelegramID:      789,
@@ -50,7 +117,7 @@ func TestCache_UserData(t *testing.T) {
 		SubscriptionURL: "https://example.com/sub",
 	}
 
-	got, err := c.GetUser(ctx, "user-456")
+	got, err := c.GetUser(ctx, 456)
 	if err != nil {
 		t.Fatalf("GetUser error: %v", err)
 	}
@@ -58,22 +125,19 @@ func TestCache_UserData(t *testing.T) {
 		t.Fatalf("expected nil for non-existent user, got %+v", got)
 	}
 
-	if err := c.SetUser(ctx, "user-456", user, 10*time.Second); err != nil {
+	if err := c.SetUser(ctx, 456, user, 10*time.Second); err != nil {
 		t.Fatalf("SetUser error: %v", err)
 	}
 
-	got, err = c.GetUser(ctx, "user-456")
+	got, err = c.GetUser(ctx, 456)
 	if err != nil {
 		t.Fatalf("GetUser error: %v", err)
 	}
 	if got == nil {
 		t.Fatal("expected user, got nil")
 	}
-	if got.UUID != user.UUID {
-		t.Errorf("UUID = %q, want %q", got.UUID, user.UUID)
-	}
 	if got.UserID != user.UserID {
-		t.Errorf("UserID = %q, want %q", got.UserID, user.UserID)
+		t.Errorf("UserID = %d, want %d", got.UserID, user.UserID)
 	}
 	if got.Username != user.Username {
 		t.Errorf("Username = %q, want %q", got.Username, user.Username)
@@ -99,7 +163,7 @@ func TestCache_Cooldown(t *testing.T) {
 	c := setupTestCache(t)
 	ctx := context.Background()
 
-	active, err := c.IsCooldownActive(ctx, "user-1")
+	active, err := c.IsCooldownActive(ctx, 1)
 	if err != nil {
 		t.Fatalf("IsCooldownActive error: %v", err)
 	}
@@ -107,11 +171,11 @@ func TestCache_Cooldown(t *testing.T) {
 		t.Fatal("expected no cooldown initially")
 	}
 
-	if err := c.SetCooldown(ctx, "user-1", 10*time.Second); err != nil {
+	if err := c.SetCooldown(ctx, 1, 10*time.Second); err != nil {
 		t.Fatalf("SetCooldown error: %v", err)
 	}
 
-	active, err = c.IsCooldownActive(ctx, "user-1")
+	active, err = c.IsCooldownActive(ctx, 1)
 	if err != nil {
 		t.Fatalf("IsCooldownActive error: %v", err)
 	}
@@ -124,7 +188,7 @@ func TestCache_Whitelist(t *testing.T) {
 	c := setupTestCache(t)
 	ctx := context.Background()
 
-	ok, err := c.IsWhitelisted(ctx, "user-1")
+	ok, err := c.IsWhitelisted(ctx, 1)
 	if err != nil {
 		t.Fatalf("IsWhitelisted error: %v", err)
 	}
@@ -132,11 +196,11 @@ func TestCache_Whitelist(t *testing.T) {
 		t.Fatal("expected not whitelisted initially")
 	}
 
-	if err := c.AddToWhitelist(ctx, "user-1"); err != nil {
+	if err := c.AddToWhitelist(ctx, 1); err != nil {
 		t.Fatalf("AddToWhitelist error: %v", err)
 	}
 
-	ok, err = c.IsWhitelisted(ctx, "user-1")
+	ok, err = c.IsWhitelisted(ctx, 1)
 	if err != nil {
 		t.Fatalf("IsWhitelisted error: %v", err)
 	}
@@ -144,11 +208,11 @@ func TestCache_Whitelist(t *testing.T) {
 		t.Fatal("expected whitelisted after add")
 	}
 
-	if err := c.RemoveFromWhitelist(ctx, "user-1"); err != nil {
+	if err := c.RemoveFromWhitelist(ctx, 1); err != nil {
 		t.Fatalf("RemoveFromWhitelist error: %v", err)
 	}
 
-	ok, err = c.IsWhitelisted(ctx, "user-1")
+	ok, err = c.IsWhitelisted(ctx, 1)
 	if err != nil {
 		t.Fatalf("IsWhitelisted error: %v", err)
 	}
@@ -156,16 +220,16 @@ func TestCache_Whitelist(t *testing.T) {
 		t.Fatal("expected not whitelisted after removal")
 	}
 
-	if err := c.InitWhitelist(ctx, []string{"a", "b", "c"}); err != nil {
+	if err := c.InitWhitelist(ctx, []string{"11", "22", "33"}); err != nil {
 		t.Fatalf("InitWhitelist error: %v", err)
 	}
-	for _, id := range []string{"a", "b", "c"} {
+	for _, id := range []int64{11, 22, 33} {
 		ok, err = c.IsWhitelisted(ctx, id)
 		if err != nil {
-			t.Fatalf("IsWhitelisted(%q) error: %v", id, err)
+			t.Fatalf("IsWhitelisted(%d) error: %v", id, err)
 		}
 		if !ok {
-			t.Fatalf("expected %q to be whitelisted after InitWhitelist", id)
+			t.Fatalf("expected %d to be whitelisted after InitWhitelist", id)
 		}
 	}
 }
@@ -174,7 +238,7 @@ func TestCache_RestoreTimer(t *testing.T) {
 	c := setupTestCache(t)
 	ctx := context.Background()
 
-	if err := c.SetRestoreTimer(ctx, "uuid-abc", 1*time.Second); err != nil {
+	if err := c.SetRestoreTimer(ctx, 99, 1*time.Second); err != nil {
 		t.Fatalf("SetRestoreTimer error: %v", err)
 	}
 
@@ -192,7 +256,7 @@ func TestCache_RestoreTimer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetExpiredRestoreTimers error: %v", err)
 	}
-	if len(expired) != 1 || expired[0] != "uuid-abc" {
+	if len(expired) != 1 || expired[0] != "99" {
 		t.Fatalf("expected [uuid-abc], got %v", expired)
 	}
 
@@ -222,7 +286,7 @@ func TestCache_WhitelistTemp(t *testing.T) {
 	c := setupTestCache(t)
 	ctx := context.Background()
 
-	ok, err := c.IsWhitelisted(ctx, "user-temp")
+	ok, err := c.IsWhitelisted(ctx, 2)
 	if err != nil {
 		t.Fatalf("IsWhitelisted error: %v", err)
 	}
@@ -230,11 +294,11 @@ func TestCache_WhitelistTemp(t *testing.T) {
 		t.Fatal("expected not whitelisted initially")
 	}
 
-	if err := c.AddToWhitelistTemp(ctx, "user-temp", 10*time.Second); err != nil {
+	if err := c.AddToWhitelistTemp(ctx, 2, 10*time.Second); err != nil {
 		t.Fatalf("AddToWhitelistTemp error: %v", err)
 	}
 
-	ok, err = c.IsWhitelisted(ctx, "user-temp")
+	ok, err = c.IsWhitelisted(ctx, 2)
 	if err != nil {
 		t.Fatalf("IsWhitelisted error: %v", err)
 	}
@@ -242,7 +306,7 @@ func TestCache_WhitelistTemp(t *testing.T) {
 		t.Fatal("expected whitelisted after AddToWhitelistTemp")
 	}
 
-	inSet, err := c.client.SIsMember(ctx, keyWhitelist, "user-temp").Result()
+	inSet, err := c.client.SIsMember(ctx, keyWhitelist, "2").Result()
 	if err != nil {
 		t.Fatalf("SIsMember error: %v", err)
 	}
@@ -255,11 +319,11 @@ func TestCache_WhitelistTemp_Expires(t *testing.T) {
 	c := setupTestCache(t)
 	ctx := context.Background()
 
-	if err := c.AddToWhitelistTemp(ctx, "user-exp", 1*time.Second); err != nil {
+	if err := c.AddToWhitelistTemp(ctx, 3, 1*time.Second); err != nil {
 		t.Fatalf("AddToWhitelistTemp error: %v", err)
 	}
 
-	ok, err := c.IsWhitelisted(ctx, "user-exp")
+	ok, err := c.IsWhitelisted(ctx, 3)
 	if err != nil {
 		t.Fatalf("IsWhitelisted error: %v", err)
 	}
@@ -269,7 +333,7 @@ func TestCache_WhitelistTemp_Expires(t *testing.T) {
 
 	time.Sleep(1500 * time.Millisecond)
 
-	ok, err = c.IsWhitelisted(ctx, "user-exp")
+	ok, err = c.IsWhitelisted(ctx, 3)
 	if err != nil {
 		t.Fatalf("IsWhitelisted error: %v", err)
 	}
@@ -282,27 +346,27 @@ func TestCache_Whitelist_PermanentAndTempIndependent(t *testing.T) {
 	c := setupTestCache(t)
 	ctx := context.Background()
 
-	if err := c.AddToWhitelist(ctx, "perm-user"); err != nil {
+	if err := c.AddToWhitelist(ctx, 5); err != nil {
 		t.Fatalf("AddToWhitelist error: %v", err)
 	}
-	if err := c.AddToWhitelistTemp(ctx, "temp-user", 10*time.Second); err != nil {
+	if err := c.AddToWhitelistTemp(ctx, 4, 10*time.Second); err != nil {
 		t.Fatalf("AddToWhitelistTemp error: %v", err)
 	}
 
-	for _, id := range []string{"perm-user", "temp-user"} {
+	for _, id := range []int64{5, 4} {
 		ok, err := c.IsWhitelisted(ctx, id)
 		if err != nil {
-			t.Fatalf("IsWhitelisted(%q) error: %v", id, err)
+			t.Fatalf("IsWhitelisted(%d) error: %v", id, err)
 		}
 		if !ok {
-			t.Fatalf("expected %q to be whitelisted", id)
+			t.Fatalf("expected %d to be whitelisted", id)
 		}
 	}
 
-	if err := c.RemoveFromWhitelist(ctx, "temp-user"); err != nil {
+	if err := c.RemoveFromWhitelist(ctx, 4); err != nil {
 		t.Fatalf("RemoveFromWhitelist error: %v", err)
 	}
-	ok, err := c.IsWhitelisted(ctx, "temp-user")
+	ok, err := c.IsWhitelisted(ctx, 4)
 	if err != nil {
 		t.Fatalf("IsWhitelisted error: %v", err)
 	}

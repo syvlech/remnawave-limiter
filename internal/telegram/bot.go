@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -17,7 +18,7 @@ import (
 	"github.com/remnawave/limiter/internal/i18n"
 )
 
-type ActionHandler func(ctx context.Context, action, userUUID, userID string) error
+type ActionHandler func(ctx context.Context, action string, userID int64) error
 
 type StatsHandler func(ctx context.Context) (string, error)
 
@@ -125,29 +126,29 @@ func (b *Bot) sendMsg(text string, keyboard *telego.InlineKeyboardMarkup) error 
 	return nil
 }
 
-func (b *Bot) SendManualAlert(text string, userUUID string, userID string, disableDuration int, ignoreDuration int) error {
+func (b *Bot) SendManualAlert(text string, userID int64, disableDuration int, ignoreDuration int) error {
 	rows := [][]telego.InlineKeyboardButton{
 		{
-			tu.InlineKeyboardButton(i18n.T("button.drop")).WithCallbackData(fmt.Sprintf("drop:%s:%s", userUUID, userID)),
-			tu.InlineKeyboardButton(i18n.T("button.disable_forever")).WithCallbackData(fmt.Sprintf("disable:%s:%s", userUUID, userID)),
+			tu.InlineKeyboardButton(i18n.T("button.drop")).WithCallbackData(fmt.Sprintf("drop:%d", userID)),
+			tu.InlineKeyboardButton(i18n.T("button.disable_forever")).WithCallbackData(fmt.Sprintf("disable:%d", userID)),
 		},
 	}
 
 	if disableDuration > 0 {
 		tempLabel := fmt.Sprintf("%s %s", i18n.T("button.disable_for"), FormatDuration(disableDuration))
 		rows = append(rows, []telego.InlineKeyboardButton{
-			tu.InlineKeyboardButton(tempLabel).WithCallbackData(fmt.Sprintf("disable_temp:%s:%s", userUUID, userID)),
+			tu.InlineKeyboardButton(tempLabel).WithCallbackData(fmt.Sprintf("disable_temp:%d", userID)),
 		})
 	}
 
 	if ignoreDuration > 0 {
 		ignoreLabel := fmt.Sprintf("%s %s", i18n.T("button.ignore_for"), FormatDuration(ignoreDuration))
 		rows = append(rows, []telego.InlineKeyboardButton{
-			tu.InlineKeyboardButton(ignoreLabel).WithCallbackData(fmt.Sprintf("ignore_temp:%s:%s", userUUID, userID)),
+			tu.InlineKeyboardButton(ignoreLabel).WithCallbackData(fmt.Sprintf("ignore_temp:%d", userID)),
 		})
 	} else {
 		rows = append(rows, []telego.InlineKeyboardButton{
-			tu.InlineKeyboardButton(i18n.T("button.ignore")).WithCallbackData(fmt.Sprintf("ignore:%s:%s", userUUID, userID)),
+			tu.InlineKeyboardButton(i18n.T("button.ignore")).WithCallbackData(fmt.Sprintf("ignore:%d", userID)),
 		})
 	}
 
@@ -155,10 +156,10 @@ func (b *Bot) SendManualAlert(text string, userUUID string, userID string, disab
 	return b.sendMsg(text, keyboard)
 }
 
-func (b *Bot) SendAutoAlert(text string, userUUID string) error {
+func (b *Bot) SendAutoAlert(text string, userID int64) error {
 	keyboard := tu.InlineKeyboard(
 		tu.InlineKeyboardRow(
-			tu.InlineKeyboardButton(i18n.T("button.enable")).WithCallbackData(fmt.Sprintf("enable:%s:", userUUID)),
+			tu.InlineKeyboardButton(i18n.T("button.enable")).WithCallbackData(fmt.Sprintf("enable:%d", userID)),
 		),
 	)
 	return b.sendMsg(text, keyboard)
@@ -279,15 +280,24 @@ func (b *Bot) handleCallback(ctx context.Context, callback *telego.CallbackQuery
 		return
 	}
 
-	parts := strings.SplitN(callback.Data, ":", 3)
-	if len(parts) < 3 {
+	parts := strings.SplitN(callback.Data, ":", 2)
+	if len(parts) != 2 {
 		b.logger.WithField("data", callback.Data).Warn("Telegram бот: неверный формат callback data")
 		return
 	}
 
 	action := parts[0]
-	userUUID := parts[1]
-	userID := parts[2]
+	userID, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		// Кнопка из сообщения, отправленного версией до перехода на Remnawave 3.x:
+		// там в callback data лежал UUID пользователя, которого больше не существует.
+		b.logger.WithField("data", callback.Data).Warn("Telegram бот: устаревший callback data, кнопка недействительна")
+		_ = b.api.AnswerCallbackQuery(ctx, &telego.AnswerCallbackQueryParams{
+			CallbackQueryID: callback.ID,
+			Text:            i18n.T("callback.stale"),
+		})
+		return
+	}
 
 	adminName := callback.From.FirstName
 	if callback.From.LastName != "" {
@@ -298,11 +308,10 @@ func (b *Bot) handleCallback(ctx context.Context, callback *telego.CallbackQuery
 	}
 
 	if b.onAction != nil {
-		if err := b.onAction(ctx, action, userUUID, userID); err != nil {
+		if err := b.onAction(ctx, action, userID); err != nil {
 			b.logger.WithError(err).WithFields(logrus.Fields{
-				"action":   action,
-				"userUUID": userUUID,
-				"userID":   userID,
+				"action": action,
+				"userID": userID,
 			}).Error("Telegram бот: ошибка выполнения действия")
 
 			_ = b.api.AnswerCallbackQuery(ctx, &telego.AnswerCallbackQueryParams{
@@ -313,9 +322,7 @@ func (b *Bot) handleCallback(ctx context.Context, callback *telego.CallbackQuery
 		}
 	}
 
-	username := userUUID
-
-	actionResult := FormatActionResult(action, adminName, username)
+	actionResult := FormatActionResult(action, adminName)
 
 	originalText := ""
 	if callback.Message != nil {

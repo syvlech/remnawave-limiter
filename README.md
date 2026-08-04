@@ -40,8 +40,38 @@
 ## Требования
 
 - Docker и Docker Compose
-- Remnawave 2.7.0+ с API-токеном
+- **Remnawave 3.0.0+** с API-токеном (scope `connections:*` и `users:*`)
 - Telegram-бот ([@BotFather](https://t.me/BotFather))
+
+### Какую версию limiter выбрать
+
+| Версия панели Remnawave | Версия limiter |
+|---|---|
+| **3.0.0 и новее** | **4.0.0+** — текущая, тег `latest` |
+| ниже 3.0.0 (ветка 2.x) | [3.0.0](https://github.com/syvlech/remnawave-limiter/releases/tag/3.0.0) — последняя с поддержкой панелей 2.x |
+
+Версии совместимы только в одну сторону: в Remnawave 3.0.0 модуль `ip-control` переименован в `connections`, а пользователи идентифицируются числовым `id` вместо `uuid` — старые эндпоинты удалены. Поэтому limiter 4.0.0+ не работает с панелью 2.x, а limiter 3.0.0 — с панелью 3.x.
+
+Если панель ещё не обновлена, зафиксируйте образ на релизе 3.0.0 в `docker-compose.yml`:
+
+```yaml
+image: ghcr.io/syvlech/remnawave-limiter:b422f43
+```
+
+`b422f43` — коммит релиза 3.0.0. Отдельного тега образа `3.0.0` в ghcr нет: CI собирает semver-теги только для рефов вида `v*`, а релиз помечен как `3.0.0` без префикса.
+
+## Обновление с limiter 3.x на 4.0.0
+
+1. Обновите панель до Remnawave 3.0.0+.
+2. В панели перевыпустите (или отредактируйте) API-токен: scope `ip-control:*` переименован в `connections:*`. Без этого все запросы вернут 403.
+3. Обновите limiter и перезапустите.
+
+Данные в Redis мигрировать не нужно: числовой ID пользователя записывается в те же ключи (`user:<id>`, `cooldown:<id>`, `whitelist`, статистика), что и раньше. Исключения:
+
+- **Очередь восстановления.** Записи `restore:queue`, созданные версией 3.x, содержат UUID и будут пропущены с предупреждением в логе — таких пользователей нужно включить вручную. Чтобы очистить очередь заранее: `redis-cli DEL restore:queue`.
+- **Кнопки в старых сообщениях Telegram.** Алерты, отправленные до обновления, содержат UUID в callback data; при нажатии бот ответит «Кнопка устарела».
+- **`WHITELIST_USER_IDS`** должен содержать числовые ID пользователей (как и раньше); UUID в этом списке ни с чем не совпадут.
+- **Webhook.** Поле `user.uuid` удалено, а `user.user_id` теперь число, а не строка — обновите обработчик на своей стороне.
 
 ## Установка
 
@@ -214,8 +244,7 @@ docker compose logs -f limiter                # проверка
   "event": "violation_detected",
   "action_mode": "auto",
   "user": {
-    "uuid": "550e8400-e29b-41d4-a716-446655440000",
-    "user_id": "123",
+    "user_id": 123,
     "username": "john",
     "email": "john@example.com",
     "telegram_id": 123456789,
@@ -241,7 +270,7 @@ docker compose logs -f limiter                # проверка
 |------|----------|
 | `event` | `violation_detected` при бане; `soft_violation_detected` для «мягкого» предупреждения (`AUTO_NOTIFY_SOFT`) |
 | `action_mode` | `manual` или `auto` |
-| `user` | Данные пользователя (UUID, username, email, telegram_id, subscription_url) |
+| `user` | Данные пользователя (user_id, username, email, telegram_id, subscription_url) |
 | `violation.ips` | Активные IP с нодой и временем последней активности |
 | `violation.ip_count` | Количество уникальных IP |
 | `violation.device_limit` / `tolerance` / `effective_limit` | Лимит, допуск и эффективный лимит (`device_limit + tolerance`) |

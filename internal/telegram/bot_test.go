@@ -587,3 +587,87 @@ func TestAnswerCallback_SurvivesCancelledContext(t *testing.T) {
 		t.Error("ответ на callback должен уходить и с отменённым контекстом")
 	}
 }
+
+// Telegram не присылает типы обновлений, отсутствующие в сохранённом
+// allowed_updates (значение переживает рестарты и остаётся от прошлого
+// webhook/getUpdates). Без явного списка бот на «чужом» или ранее
+// использованном токене не получает callback_query, и кнопки молча не
+// работают. Бот обязан запрашивать callback_query на каждом poll.
+func TestStartPolling_RequestsCallbackQueryUpdates(t *testing.T) {
+	got := make(chan []string, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/getUpdates") {
+			var allowed []string
+			if _, params, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err == nil && params["boundary"] != "" {
+				mr := multipart.NewReader(r.Body, params["boundary"])
+				for {
+					part, err := mr.NextPart()
+					if err != nil {
+						break
+					}
+					if part.FormName() == "allowed_updates" {
+						v, _ := io.ReadAll(part)
+						_ = json.Unmarshal(v, &allowed)
+					}
+				}
+			} else {
+				var body struct {
+					AllowedUpdates []string `json:"allowed_updates"`
+				}
+				raw, _ := io.ReadAll(r.Body)
+				_ = json.Unmarshal(raw, &body)
+				allowed = body.AllowedUpdates
+			}
+			select {
+			case got <- allowed:
+			default:
+			}
+			select {
+			case <-r.Context().Done():
+			case <-time.After(200 * time.Millisecond):
+			}
+			_, _ = w.Write([]byte(`{"ok":true,"result":[]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
+	}))
+	defer srv.Close()
+
+	logger := logrus.New()
+	logger.SetOutput(io.Discard)
+	b, err := newBot(testToken, 100, 0, []int64{42}, "", logger, tgbot.WithServerURL(srv.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		b.StartPolling(ctx)
+		close(done)
+	}()
+
+	select {
+	case allowed := <-got:
+		has := make(map[string]bool, len(allowed))
+		for _, a := range allowed {
+			has[a] = true
+		}
+		if !has["callback_query"] {
+			t.Errorf("allowed_updates=%v, должен содержать callback_query", allowed)
+		}
+		if !has["message"] {
+			t.Errorf("allowed_updates=%v, должен содержать message", allowed)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("getUpdates не был вызван")
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("polling не остановился после отмены контекста")
+	}
+}

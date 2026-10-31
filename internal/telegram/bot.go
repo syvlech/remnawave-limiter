@@ -197,6 +197,11 @@ func newBot(token string, chatID, threadID int64, adminIDs []int64, proxyURL str
 		// Обновления обрабатываются по одному, как раньше: ожидание ввода
 		// значения настройки не рассчитано на параллельные обработчики.
 		tgbot.WithNotAsyncHandlers(),
+		// Telegram запоминает allowed_updates от прошлых getUpdates/webhook и без
+		// явного списка не присылает отсутствующие в нём типы. Общий или ранее
+		// использованный бот мог остаться без callback_query — тогда кнопки
+		// настроек и действий молча не работают. Запрашиваем нужные типы явно.
+		tgbot.WithAllowedUpdates(tgbot.AllowedUpdates{"message", "callback_query", "channel_post", "my_chat_member"}),
 	}
 	api, err := tgbot.New(token, append(opts, extra...)...)
 	if err != nil {

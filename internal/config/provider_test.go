@@ -34,7 +34,7 @@ func TestProvider_WatchFiresOnStore(t *testing.T) {
 func TestProvider_WatchIgnoresNil(t *testing.T) {
 	p := NewProvider(&Config{})
 	p.Watch(nil)
-	p.Store(&Config{}) // не должно паниковать
+	p.Store(&Config{})
 }
 
 func TestProvider_MultipleWatchers(t *testing.T) {
@@ -50,8 +50,6 @@ func TestProvider_MultipleWatchers(t *testing.T) {
 	}
 }
 
-// Load вызывается из каждой горутины проверки, Store — из обработчика
-// /settings: гонки между ними быть не должно.
 func TestProvider_ConcurrentLoadStore(t *testing.T) {
 	p := NewProvider(&Config{CheckInterval: 1})
 	p.Watch(func(*Config) {})

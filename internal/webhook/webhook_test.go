@@ -150,8 +150,6 @@ func TestClient_Send_NoSecretHeader_WhenEmpty(t *testing.T) {
 	}
 }
 
-// fastClient — клиент без реальных пауз между повторами, чтобы тесты
-// ретраев не занимали секунды.
 func fastClient(url, secret string) *Client {
 	c := NewClient(url, secret, testLogger())
 	c.retryDelay = time.Millisecond
@@ -183,7 +181,6 @@ func TestClient_Send_ClientError_DoesNotRetry(t *testing.T) {
 
 	fastClient(srv.URL, "").Send(context.Background(), testPayload())
 
-	// 4xx — осознанный отказ получателя, повторять нечего.
 	if calls != 1 {
 		t.Errorf("expected 1 attempt on 4xx, got %d", calls)
 	}
@@ -245,8 +242,6 @@ func TestClient_Send_CancelledContext_StopsRetrying(t *testing.T) {
 	}
 }
 
-// X-Signature-V2 подписывает "<X-Timestamp>.<тело>": запрос, переигранный
-// с новым X-Timestamp, проверку не пройдёт.
 func TestClient_Send_SignatureV2CoversTimestamp(t *testing.T) {
 	const secret = "my-secret-123"
 	var gotSig, gotTS string

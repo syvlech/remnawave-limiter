@@ -19,8 +19,6 @@ func quietLogger() *logrus.Logger {
 	return l
 }
 
-// nodeJobServer отдаёт результат connections/by-node для нод из ok
-// и 500 для всех остальных.
 func nodeJobServer(t *testing.T, healthy map[string]bool) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -28,11 +26,9 @@ func nodeJobServer(t *testing.T, healthy map[string]bool) *httptest.Server {
 
 		if r.Method == http.MethodPost {
 			if !healthy[id] {
-				// 400, а не 5xx: клиент не ретраит 4xx, и тест не ждёт бэкофф.
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			// jobId кодирует ноду, чтобы опрос статуса знал, что вернуть.
 			w.Write([]byte(`{"response":{"jobId":"job-` + id + `"}}`))
 			return
 		}
@@ -63,8 +59,6 @@ func TestFetchNodes_PartialFailure(t *testing.T) {
 	if len(results) != 2 {
 		t.Fatalf("len(results) = %d, want 2", len(results))
 	}
-	// Сбойная нода не должна оставлять пустую запись среди результатов:
-	// иначе её "нулевые" данные учитывались бы как отсутствие подключений.
 	for _, res := range results {
 		if res.nodeUUID == "" || len(res.entries) == 0 {
 			t.Errorf("empty result leaked into successful set: %+v", res)
@@ -82,8 +76,6 @@ func TestFetchNodes_AllFailed(t *testing.T) {
 	nodes := []api.Node{{UUID: "bad-1"}, {UUID: "bad-2"}}
 	results, failed := m.fetchNodes(context.Background(), nodes)
 
-	// check() опирается на failed == len(nodes), чтобы не отмечать
-	// проверку успешной и не врать в /healthz.
 	if failed != len(nodes) {
 		t.Errorf("failed = %d, want %d", failed, len(nodes))
 	}

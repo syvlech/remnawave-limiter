@@ -6,9 +6,6 @@ import (
 	"github.com/remnawave/limiter/internal/i18n"
 )
 
-// Добавление рантайм-настройки требует четырёх согласованных правок:
-// поле в Config + строка загрузчика, запись в registry, case в Display и
-// переводы в обеих картах i18n. Тест ловит забытую правку.
 func TestRegistry_EveryFieldIsFullyWired(t *testing.T) {
 	clearEnv()
 	setRequiredEnv()
@@ -36,8 +33,6 @@ func TestRegistry_EveryFieldIsFullyWired(t *testing.T) {
 				if len(f.Allowed) == 0 {
 					t.Errorf("%s: для bool/enum нужен непустой Allowed", f.Key)
 				}
-				// Текущее значение обязано быть одним из допустимых,
-				// иначе кнопка «✅» в меню не подсветится никогда.
 				current := Display(cfg, f.Key)
 				if !contains(f.Allowed, current) {
 					t.Errorf("%s: текущее значение %q отсутствует в Allowed %v", f.Key, current, f.Allowed)
@@ -47,8 +42,6 @@ func TestRegistry_EveryFieldIsFullyWired(t *testing.T) {
 	}
 }
 
-// Значение из бота проходит ValidateRaw, а затем полную перезагрузку
-// конфигурации: оба слоя должны принимать одни и те же значения.
 func TestRegistry_AllowedValuesPassFullValidation(t *testing.T) {
 	for _, f := range Registry() {
 		if len(f.Allowed) == 0 {
@@ -71,7 +64,6 @@ func TestRegistry_AllowedValuesPassFullValidation(t *testing.T) {
 }
 
 func TestRegistry_UneditableKeysRejected(t *testing.T) {
-	// Секреты и структурные ключи не должны меняться из бота.
 	for _, key := range []string{
 		"REMNAWAVE_API_TOKEN", "TELEGRAM_BOT_TOKEN", "REDIS_URL",
 		"TIMEZONE", "LANGUAGE", "LOG_FORMAT", "WEBHOOK_SECRET", "HEALTH_ADDR",

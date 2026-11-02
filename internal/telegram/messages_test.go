@@ -15,7 +15,6 @@ func init() {
 	i18n.SetLanguage("ru")
 }
 
-// row — ожидаемая строка таблицы «заголовок | значение» в rich HTML.
 func row(header, value string) string {
 	return tableRow(header, value)
 }
@@ -196,7 +195,6 @@ func TestFormatManualAlert_SubnetGroupingHeader(t *testing.T) {
 	if !strings.Contains(result, "3 IP · 2 ASN") {
 		t.Errorf("expected '3 IP · 2 ASN', got:\n%s", result)
 	}
-	// Превышение считается по подсетям, а не по IP.
 	if !strings.Contains(result, "<mark>+1</mark>") {
 		t.Errorf("expected overflow computed from subnets, got:\n%s", result)
 	}
@@ -396,8 +394,6 @@ func TestFormatActionResult(t *testing.T) {
 }
 
 func TestEscapeHTML_EscapesQuote(t *testing.T) {
-	// Результат подставляется в том числе внутрь href="...",
-	// поэтому кавычка обязана экранироваться.
 	got := escapeHTML(`a"b<c&d>e`)
 	want := "a&quot;b&lt;c&amp;d&gt;e"
 	if got != want {
@@ -442,14 +438,11 @@ func TestTruncateAnswer(t *testing.T) {
 
 	long := strings.Repeat("я", 500)
 	got := truncateAnswer(long)
-	// Telegram считает лимит в символах, а не байтах — режем по рунам.
 	if runes := []rune(got); len(runes) > callbackAnswerMaxLen {
 		t.Errorf("truncateAnswer returned %d runes, want <= %d", len(runes), callbackAnswerMaxLen)
 	}
 }
 
-// Срез по байтам разрезал бы многобайтный символ: результат обязан оставаться
-// валидным UTF-8 и считаться в символах.
 func TestTruncateASNOrg_MultibyteSafe(t *testing.T) {
 	cyr40 := strings.Repeat("Ж", 40)
 	if got := truncateASNOrg(cyr40); got != cyr40 {

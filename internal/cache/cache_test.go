@@ -35,9 +35,6 @@ func setupTestCache(t *testing.T) *Cache {
 	return c
 }
 
-// Переход на Remnawave 3.x сменил тип ID пользователя со строки на число, но
-// десятичное представление осталось прежним. Тест фиксирует, что имена ключей не
-// изменились, — иначе при обновлении потребовалась бы миграция данных в Redis.
 func TestCache_KeyNamesUnchangedAfterV3(t *testing.T) {
 	c := setupTestCache(t)
 	ctx := context.Background()
@@ -375,9 +372,6 @@ func TestCache_Whitelist_PermanentAndTempIndependent(t *testing.T) {
 	}
 }
 
-// Раньше TTL переустанавливался после каждого INCR, из-за чего окно
-// становилось скользящим: у постоянного нарушителя счётчик за 24ч не
-// истекал никогда и рос неограниченно.
 func TestCache_ViolationCount_WindowDoesNotSlide(t *testing.T) {
 	c := setupTestCache(t)
 	ctx := context.Background()
@@ -432,8 +426,6 @@ func TestCache_ThresholdCount_UsesConfiguredWindow(t *testing.T) {
 	}
 }
 
-// Ключ, оставшийся без TTL от предыдущих версий, должен получить его
-// на следующем инкременте, а не жить в Redis вечно.
 func TestCache_Counter_HealsKeyWithoutTTL(t *testing.T) {
 	c := setupTestCache(t)
 	ctx := context.Background()
@@ -489,8 +481,6 @@ func TestCache_RestoreAttempts(t *testing.T) {
 	}
 }
 
-// Истёкшие таймеры забираются из очереди деструктивно, поэтому монитор
-// обязан уметь вернуть ID назад, если панель была недоступна.
 func TestCache_RestoreTimer_CanBeRequeued(t *testing.T) {
 	c := setupTestCache(t)
 	ctx := context.Background()
@@ -509,7 +499,6 @@ func TestCache_RestoreTimer_CanBeRequeued(t *testing.T) {
 		t.Fatalf("expired = %v, want [%s]", expired, formatUserID(userID))
 	}
 
-	// Повторный вызов ничего не возвращает — запись уже удалена.
 	if again, err := c.GetExpiredRestoreTimers(ctx); err != nil || len(again) != 0 {
 		t.Fatalf("expected empty queue, got %v (err %v)", again, err)
 	}
@@ -526,8 +515,6 @@ func TestCache_RestoreTimer_CanBeRequeued(t *testing.T) {
 	}
 }
 
-// Нулевой TTL в Redis — «без срока», поэтому временный whitelist с ним
-// незаметно стал бы вечным. Проверка срабатывает до обращения к Redis.
 func TestCache_WhitelistTemp_RejectsNonPositiveTTL(t *testing.T) {
 	c, err := New("redis://127.0.0.1:1/15")
 	if err != nil {
@@ -559,7 +546,6 @@ func TestCache_RemoveRestoreTimer(t *testing.T) {
 	if err := c.RemoveRestoreTimer(ctx, 7); err != nil {
 		t.Fatalf("RemoveRestoreTimer: %v", err)
 	}
-	// Повторное снятие и снятие несуществующего таймера — не ошибка.
 	if err := c.RemoveRestoreTimer(ctx, 7); err != nil {
 		t.Fatalf("повторный RemoveRestoreTimer: %v", err)
 	}

@@ -11,9 +11,6 @@ import (
 	"time"
 )
 
-// retryClient повторяет запросы к Bot API при сетевых ошибках, 429 и 502–504.
-// Он заменяет telego.RetryCaller: у go-telegram/bot своих повторов нет.
-// getUpdates не повторяется — у цикла polling в библиотеке своя пауза после ошибки.
 type retryClient struct {
 	client      *http.Client
 	maxAttempts int
@@ -41,8 +38,6 @@ func (c *retryClient) Do(req *http.Request) (*http.Response, error) {
 				return resp, nil
 			}
 			if retryAfter > 0 {
-				// Ждать дольше maxDelay бессмысленно: вызывающий код
-				// получит 429 и решит сам.
 				if retryAfter > c.maxDelay {
 					return resp, nil
 				}
@@ -71,7 +66,6 @@ func (c *retryClient) Do(req *http.Request) (*http.Response, error) {
 	}
 }
 
-// inspect решает, повторять ли ответ, и возвращает его с перечитываемым телом.
 func (c *retryClient) inspect(resp *http.Response) (retry bool, retryAfter time.Duration, kept *http.Response) {
 	switch resp.StatusCode {
 	case http.StatusTooManyRequests:
@@ -103,8 +97,6 @@ func (c *retryClient) inspect(resp *http.Response) (retry bool, retryAfter time.
 	return true, time.Duration(max(secs, 0)) * time.Second, resp
 }
 
-// rewind готовит копию запроса для повтора. Библиотека собирает тело
-// в *bytes.Reader, поэтому GetBody у запросов есть.
 func rewind(req *http.Request) (*http.Request, error) {
 	next := req.Clone(req.Context())
 	if req.GetBody != nil {

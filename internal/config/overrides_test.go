@@ -87,7 +87,6 @@ func TestMergeSavedOverrides_AllValid(t *testing.T) {
 	}
 }
 
-// Одно невалидное значение не должно отменять остальные переопределения.
 func TestMergeSavedOverrides_DropsOnlyInvalidKeys(t *testing.T) {
 	clearEnv()
 	setRequiredEnv()
@@ -119,8 +118,6 @@ func TestMergeSavedOverrides_DropsOnlyInvalidKeys(t *testing.T) {
 	}
 }
 
-// Значения, которые по отдельности валидны, но вместе дают недостижимый порог:
-// сохраняется совместимое подмножество, а не ничего.
 func TestMergeSavedOverrides_ConflictingCombination(t *testing.T) {
 	clearEnv()
 	setRequiredEnv()

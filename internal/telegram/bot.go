@@ -22,26 +22,15 @@ import (
 const (
 	sendTimeout = 60 * time.Second
 
-	// updateTimeout ограничивает обработку одного обновления целиком: обновления
-	// обрабатываются по одному, и зависший вызов Telegram или панели иначе
-	// остановил бы весь бот.
 	updateTimeout = 90 * time.Second
-	// answerTimeout — на ответ callback-запросу. Ответ уходит, даже если время
-	// на обработку обновления уже вышло, чтобы у админа не крутился индикатор.
 	answerTimeout = 10 * time.Second
 
-	// pollTimeout — длительность long polling. Библиотека запрашивает
-	// getUpdates с timeout на секунду меньше, то есть 30с, как раньше.
 	pollTimeout = 31 * time.Second
-	// httpTimeout ограничивает одну HTTP-попытку и должен быть больше pollTimeout,
-	// иначе long polling обрывался бы клиентом.
 	httpTimeout = pollTimeout + 15*time.Second
 
 	callbackAnswerMaxLen = 200
 )
 
-// Action — нажатая кнопка алерта. Minutes — длительность временного действия,
-// зашитая в кнопку при отправке алерта; 0 — кнопка старого формата без неё.
 type Action struct {
 	Name    string
 	UserID  int64
@@ -50,23 +39,16 @@ type Action struct {
 
 type ActionHandler func(ctx context.Context, a Action) error
 
-// ErrStaleAction возвращает обработчик действия, когда кнопку уже нельзя
-// выполнить так, как обещает её подпись. Админ получает ответ «кнопка устарела».
 var ErrStaleAction = errors.New("кнопка устарела")
 
 func actionData(action string, userID int64) string {
 	return fmt.Sprintf("%s:%d", action, userID)
 }
 
-// timedActionData — кнопка временного действия. Длительность хранится в самой
-// кнопке: если её взять из конфига при нажатии, после смены настройки кнопка
-// сделала бы не то, что написано на ней.
 func timedActionData(action string, userID int64, minutes int) string {
 	return fmt.Sprintf("%s:%d:%d", action, userID, minutes)
 }
 
-// parseActionData разбирает callback data кнопки алерта: "action:userID"
-// или "action:userID:minutes" для временных действий.
 func parseActionData(data string) (Action, bool) {
 	parts := strings.Split(data, ":")
 	if len(parts) < 2 || len(parts) > 3 || parts[0] == "" {
@@ -90,7 +72,6 @@ func parseActionData(data string) (Action, bool) {
 type StatsHandler func(ctx context.Context) (string, error)
 
 func buildHTTPClient(proxyURL string) (*http.Client, error) {
-	// Без TELEGRAM_PROXY переменные HTTP(S)_PROXY не учитываются, как и раньше.
 	var proxy func(*http.Request) (*url.URL, error)
 	if proxyURL != "" {
 		u, err := url.Parse(proxyURL)
@@ -153,7 +134,6 @@ func NewBot(token string, chatID, threadID int64, adminIDs []int64, proxyURL str
 	return newBot(token, chatID, threadID, adminIDs, proxyURL, logger)
 }
 
-// newBot принимает дополнительные опции библиотеки — тесты подменяют ими адрес Bot API.
 func newBot(token string, chatID, threadID int64, adminIDs []int64, proxyURL string, logger *logrus.Logger, extra ...tgbot.Option) (*Bot, error) {
 	if !validToken(token) {
 		return nil, fmt.Errorf("не удалось создать Telegram бота: неверный формат токена")
@@ -182,8 +162,6 @@ func newBot(token string, chatID, threadID int64, adminIDs []int64, proxyURL str
 
 	bl := newBotLogger(logger, token)
 	opts := []tgbot.Option{
-		// getMe не вызываем: старт не должен зависеть от доступности Telegram,
-		// ошибки сети всплывут при первой отправке.
 		tgbot.WithSkipGetMe(),
 		tgbot.WithHTTPClient(pollTimeout, &retryClient{
 			client:      client,
@@ -194,8 +172,6 @@ func newBot(token string, chatID, threadID int64, adminIDs []int64, proxyURL str
 		tgbot.WithErrorsHandler(func(err error) { bl.Errorf("%v", err) }),
 		tgbot.WithDebugHandler(bl.Debugf),
 		tgbot.WithDefaultHandler(b.handleUpdate),
-		// Обновления обрабатываются по одному, как раньше: ожидание ввода
-		// значения настройки не рассчитано на параллельные обработчики.
 		tgbot.WithNotAsyncHandlers(),
 	}
 	api, err := tgbot.New(token, append(opts, extra...)...)
@@ -206,8 +182,6 @@ func newBot(token string, chatID, threadID int64, adminIDs []int64, proxyURL str
 	return b, nil
 }
 
-// validToken проверяет формат "<id>:<secret>", как это делал telego,
-// чтобы опечатка в TELEGRAM_BOT_TOKEN обнаруживалась при старте.
 func validToken(token string) bool {
 	id, secret, ok := strings.Cut(token, ":")
 	if !ok || len(secret) < 30 {
@@ -227,9 +201,6 @@ func (b *Bot) SetStatsHandler(handler StatsHandler) {
 	b.onStats = handler
 }
 
-// sendRich отправляет rich-сообщение. Если Telegram его отверг (Bad Request —
-// например, разметку не удалось разобрать), сообщение уходит обычным текстом
-// с inline-клавиатурой: алерт важнее оформления.
 func (b *Bot) sendRich(ctx context.Context, chatID int64, threadID int, m richMsg) (int, error) {
 	sendCtx, cancel := context.WithTimeout(ctx, sendTimeout)
 	defer cancel()
@@ -270,8 +241,6 @@ func (b *Bot) sendRich(ctx context.Context, chatID int64, threadID int, m richMs
 	return sent.ID, nil
 }
 
-// editRich заменяет содержимое сообщения. Пустая reply_markup убирает
-// inline-клавиатуру, если сообщение было отправлено до перехода на rich.
 func (b *Bot) editRich(ctx context.Context, chatID int64, messageID int, m richMsg) error {
 	if chatID == 0 || messageID == 0 {
 		return nil
@@ -345,8 +314,6 @@ func (b *Bot) SendAutoAlert(ctx context.Context, text string, userID int64) erro
 	return b.sendMsg(ctx, richMsg{HTML: text, Rows: rows})
 }
 
-// SendSoftAlert — уведомление о превышении в пределах допуска: бан не применён,
-// но админ может сбросить подключения или заглушить пользователя.
 func (b *Bot) SendSoftAlert(ctx context.Context, text string, userID int64, ignoreDuration int) error {
 	row := []richButton{
 		cbButton(i18n.T("button.drop"), actionData("drop", userID), stylePrimary),
@@ -355,7 +322,6 @@ func (b *Bot) SendSoftAlert(ctx context.Context, text string, userID int64, igno
 	return b.sendMsg(ctx, richMsg{HTML: text, Rows: [][]richButton{row}})
 }
 
-// ignoreButton — «Игнорировать» навсегда или на ignoreDuration минут.
 func ignoreButton(userID int64, ignoreDuration int) richButton {
 	if ignoreDuration > 0 {
 		label := fmt.Sprintf("%s %s", i18n.T("button.ignore_for"), FormatDuration(ignoreDuration))
@@ -364,8 +330,6 @@ func ignoreButton(userID int64, ignoreDuration int) richButton {
 	return cbButton(i18n.T("button.ignore"), actionData("ignore", userID), styleNone)
 }
 
-// undoRows — кнопка «Включить» после отключения подписки, чтобы действие
-// можно было отменить из того же сообщения.
 func undoRows(action string, userID int64) [][]richButton {
 	if action != "disable" && action != "disable_temp" {
 		return nil
@@ -373,13 +337,10 @@ func undoRows(action string, userID int64) [][]richButton {
 	return [][]richButton{{cbButton(i18n.T("button.enable"), actionData("enable", userID), styleSuccess)}}
 }
 
-// SendMessage отправляет короткое уведомление; text — фрагмент rich HTML
-// из одного абзаца (теги <b>, <code> и т.п. допустимы).
 func (b *Bot) SendMessage(ctx context.Context, text string) error {
 	return b.sendMsg(ctx, richMsg{HTML: "<p>" + text + "</p>"})
 }
 
-// SendStats отправляет статистику (в том числе ежедневный отчёт) с кнопкой обновления.
 func (b *Bot) SendStats(ctx context.Context, text string) error {
 	return b.sendMsg(ctx, richMsg{HTML: text, Rows: statsRows()})
 }
@@ -433,7 +394,6 @@ func (b *Bot) StartPolling(ctx context.Context) {
 
 	b.logger.Info("Telegram бот: запущен polling")
 
-	// Start блокируется до отмены ctx.
 	b.api.Start(ctx)
 
 	b.logger.Info("Telegram бот: polling остановлен")
@@ -587,9 +547,6 @@ func (b *Bot) handleCallback(ctx context.Context, callback *models.CallbackQuery
 	b.answerCallback(ctx, callback.ID, i18n.T("callback.done"))
 }
 
-// callbackMessage возвращает сообщение, к которому привязана кнопка. Для
-// недоступного боту сообщения (удалённого или слишком старого) Telegram
-// присылает только чат и ID — msg тогда nil.
 func callbackMessage(cb *models.CallbackQuery) (chatID int64, messageID int, msg *models.Message) {
 	switch {
 	case cb.Message.Message != nil:
@@ -602,9 +559,6 @@ func callbackMessage(cb *models.CallbackQuery) (chatID int64, messageID int, msg
 	return 0, 0, nil
 }
 
-// showScreen перерисовывает экран в сообщении messageID, а если его нельзя
-// отредактировать (сообщение удалено или недоступно боту) — присылает новое.
-// Возвращает ID сообщения, в котором теперь экран; 0 — показать не удалось.
 func (b *Bot) showScreen(ctx context.Context, chatID int64, messageID int, m richMsg) int {
 	if chatID == 0 {
 		return 0
@@ -628,11 +582,6 @@ func (b *Bot) showScreen(ctx context.Context, chatID int64, messageID int, m ric
 	return id
 }
 
-// markActionDone убирает кнопки алерта и дописывает, кто и что сделал.
-// Rich-алерт пересобирается из его же блоков; после отключения подписки
-// остаётся кнопка «Включить», чтобы действие можно было отменить. Если алерт
-// недоступен боту или Telegram отверг правку, итог уходит отдельным сообщением
-// ответом на алерт: другие админы должны видеть, что действие уже выполнено.
 func (b *Bot) markActionDone(ctx context.Context, chatID int64, messageID int, msg *models.Message, action string, userID int64, adminName string) error {
 	if chatID == 0 {
 		return nil
@@ -656,8 +605,6 @@ func (b *Bot) markActionDone(ctx context.Context, chatID int64, messageID int, m
 	return err
 }
 
-// markTextAlert — алерт обычным текстом: отправлен до перехода на rich или
-// запасным путём, когда Telegram отверг rich-сообщение.
 func (b *Bot) markTextAlert(ctx context.Context, msg *models.Message, action string, userID int64, adminName string) error {
 	originalText := msg.Text
 	if originalText == "" {
@@ -714,8 +661,6 @@ func (b *Bot) markRichAlert(ctx context.Context, msg *models.Message, action str
 	return err
 }
 
-// actionReport — итог действия отдельным сообщением ответом на алерт,
-// когда сам алерт отредактировать нельзя.
 func actionReport(action string, userID int64, adminName string, replyTo int) richMsg {
 	html := "<blockquote><b>" + escapeHTML(actionResultText(action)) + "</b> · " +
 		escapeHTML(i18n.T("action.admin")) + ": " + escapeHTML(adminName) + " · " +

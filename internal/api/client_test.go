@@ -74,11 +74,9 @@ func TestClient_FetchUsersIPs(t *testing.T) {
 			resultCalls++
 			w.Header().Set("Content-Type", "application/json")
 			if resultCalls == 1 {
-				// Задание ещё выполняется.
 				w.Write([]byte(`{"response":{"isCompleted":false,"isFailed":false,"result":null}}`))
 				return
 			}
-			// userId приходит числом, а не строкой, как было до Remnawave 3.x.
 			w.Write([]byte(`{"response":{"isCompleted":true,"isFailed":false,"result":{
 				"success":true,
 				"nodeUuid":"` + nodeUUID + `",
@@ -122,7 +120,6 @@ func TestClient_FetchUsersIPs(t *testing.T) {
 	if entries[0].IPs[0].LastSeen.IsZero() {
 		t.Error("lastSeen was not parsed")
 	}
-	// ID больше 2^53 не должен терять точность (json.Number -> int64, а не float64).
 	if entries[1].UserID != 9007199254740993 {
 		t.Errorf("expected userId 9007199254740993, got %d", entries[1].UserID)
 	}
@@ -294,7 +291,6 @@ func TestClient_DropConnections(t *testing.T) {
 	}
 }
 
-// fastClient — клиент без реальных пауз между повторами.
 func fastClient(baseURL string) *Client {
 	c := NewClient(baseURL, "test-token")
 	c.backoff = time.Millisecond
@@ -322,8 +318,6 @@ func TestClient_RetriesOn5xx(t *testing.T) {
 }
 
 func TestClient_RetriesOn429(t *testing.T) {
-	// Панель за Cloudflare отдаёт 429; раньше это была мгновенная ошибка
-	// и вся проверка срывалась.
 	var calls int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
@@ -361,8 +355,6 @@ func TestClient_DoesNotRetryOn4xx(t *testing.T) {
 }
 
 func TestClient_ErrorBodyIsTruncated(t *testing.T) {
-	// WAF перед панелью умеет отдавать мегабайтные HTML-страницы;
-	// целиком они не должны попадать ни в лог, ни в Telegram.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 		w.Write([]byte(strings.Repeat("A", 100_000)))

@@ -14,11 +14,8 @@ import (
 
 var reTag = regexp.MustCompile(`<(/?)([a-zA-Z0-9-]+)[^>]*?(/?)>`)
 
-// voidTags не имеют закрывающего тега в rich HTML.
 var voidTags = map[string]bool{"br": true, "hr": true, "img": true, "input": true}
 
-// assertBalancedHTML проверяет, что каждый открытый тег закрыт в правильном
-// порядке: Telegram отвергает rich-сообщение с битой разметкой целиком.
 func assertBalancedHTML(t *testing.T, s string) {
 	t.Helper()
 	var stack []string
@@ -111,7 +108,6 @@ func TestPlainText(t *testing.T) {
 }
 
 func TestRichToInput_DropsButtonsKeepsContent(t *testing.T) {
-	// Так Telegram возвращает rich-сообщение в callback_query.message.
 	raw := `[
 		{"type":"heading","text":"Alert","size":3},
 		{"type":"table","cells":[[{"text":"User","is_header":true,"align":"left","valign":"top"},{"text":{"type":"code","text":"bob"},"align":"left","valign":"top"}]],"is_bordered":true},

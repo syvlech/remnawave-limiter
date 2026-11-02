@@ -34,7 +34,6 @@ func postForm(t *testing.T, c *retryClient, url, body string) *http.Response {
 	return resp
 }
 
-// Повтор должен отправить то же тело запроса, иначе Telegram получит пустой sendMessage.
 func TestRetryClient_RetriesGatewayErrorsWithSameBody(t *testing.T) {
 	var calls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -77,7 +76,6 @@ func TestRetryClient_RateLimitWithinMaxDelayRetried(t *testing.T) {
 	}
 }
 
-// Долгий retry_after не ждём: вызывающий код должен получить 429 с читаемым телом.
 func TestRetryClient_LongRateLimitReturnedAsIs(t *testing.T) {
 	var calls atomic.Int32
 	const body = `{"ok":false,"error_code":429,"description":"Too Many Requests","parameters":{"retry_after":60}}`
@@ -113,7 +111,6 @@ func TestRetryClient_ClientErrorNotRetried(t *testing.T) {
 	}
 }
 
-// У polling своя пауза после ошибки, повторы клиента её бы только удлиняли.
 func TestRetryClient_GetUpdatesNotRetried(t *testing.T) {
 	var calls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

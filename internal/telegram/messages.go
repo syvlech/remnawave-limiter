@@ -14,13 +14,8 @@ import (
 
 const (
 	asnOrgMaxLen = 40
-	// maxIPRows ограничивает таблицу адресов: у rich-сообщения лимит в 500 блоков,
-	// и каждая строка таблицы считается отдельным блоком.
-	maxIPRows = 30
+	maxIPRows    = 30
 )
-
-// Все Format* возвращают тело rich-сообщения в формате rich HTML без кнопок:
-// кнопки добавляет Bot при отправке. Любое подставляемое значение проходит через escapeHTML.
 
 func FormatManualAlert(user *api.CachedUser, ips []api.ActiveIP, limit int, violationCount int64, loc *time.Location, subnetGroups int, subnetEnabled bool, asnGroups int, asnEnabled bool) string {
 	var b strings.Builder
@@ -147,8 +142,6 @@ func writeUserRows(b *strings.Builder, user *api.CachedUser) {
 	}
 }
 
-// writeGroupingRows показывает лимит, то, что реально сравнивалось с лимитом
-// (ASN-группы, подсети или IP), и величину превышения.
 func writeGroupingRows(b *strings.Builder, limit int, ips []api.ActiveIP, subnetGroups int, subnetEnabled bool, asnGroups int, asnEnabled bool) {
 	ipCount := len(ips)
 	counted := ipCount
@@ -175,7 +168,6 @@ func writeGroupingRows(b *strings.Builder, limit int, ips []api.ActiveIP, subnet
 	}
 }
 
-// writeIPTable выводит адреса таблицей внутри сворачиваемого блока <details>.
 func writeIPTable(b *strings.Builder, ips []api.ActiveIP, open bool) {
 	if len(ips) == 0 {
 		return
@@ -213,9 +205,6 @@ func writeIPTable(b *strings.Builder, ips []api.ActiveIP, open bool) {
 	b.WriteString("</table></details>")
 }
 
-// truncateASNOrg обрезает название провайдера до asnOrgMaxLen символов.
-// Считаются руны, а не байты: срез по байтам разрезал бы многобайтный символ
-// и давал невалидный UTF-8, который Telegram отвергает.
 func truncateASNOrg(s string) string {
 	runes := []rune(s)
 	if len(runes) <= asnOrgMaxLen {
@@ -254,8 +243,6 @@ func actionResultText(action string) string {
 	return i18n.T("action.unknown")
 }
 
-// FormatActionResult — приписка к старым текстовым алертам (parse_mode HTML),
-// отправленным до перехода на rich-сообщения.
 func FormatActionResult(action, adminName string) string {
 	return fmt.Sprintf("\n\n%s (%s: %s)", actionResultText(action), i18n.T("action.admin"), escapeHTML(adminName))
 }

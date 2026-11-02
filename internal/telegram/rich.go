@@ -11,7 +11,6 @@ import (
 	"github.com/go-telegram/bot/models"
 )
 
-// Стили кнопок rich-сообщений (Bot API 10.3). styleLink допустим только для callback-кнопок.
 const (
 	styleNone    = ""
 	stylePrimary = "primary"
@@ -20,8 +19,6 @@ const (
 	styleLink    = "link"
 )
 
-// richButton — кнопка, которая рисуется внутри rich-сообщения (<tg-button>), а в
-// запасном текстовом сообщении превращается в обычную inline-кнопку.
 type richButton struct {
 	Text     string
 	Data     string
@@ -42,9 +39,6 @@ func disabledButton(text string) richButton {
 	return richButton{Text: text, Disabled: true}
 }
 
-// richMsg — готовое к отправке сообщение: HTML-тело в формате rich HTML
-// и ряды кнопок, которые дописываются в конец как <tg-button-row>.
-// ReplyTo — ID сообщения, ответом на которое отправить (0 — не ответ).
 type richMsg struct {
 	HTML    string
 	Rows    [][]richButton
@@ -70,7 +64,6 @@ func (m richMsg) render() string {
 	return b.String()
 }
 
-// buttonKind — тип кнопки. Disabled важнее URL, URL важнее callback.
 type buttonKind int
 
 const (
@@ -89,8 +82,6 @@ func (btn richButton) kind() buttonKind {
 	return kindCallback
 }
 
-// richStyle — стиль кнопки внутри rich-сообщения: styleLink допустим только
-// у callback-кнопок.
 func (btn richButton) richStyle() string {
 	if btn.Style == styleLink && btn.kind() != kindCallback {
 		return styleNone
@@ -98,7 +89,6 @@ func (btn richButton) richStyle() string {
 	return btn.Style
 }
 
-// inlineStyle — стиль кнопки обычной inline-клавиатуры: styleLink там нет.
 func (btn richButton) inlineStyle() string {
 	if btn.Style == styleLink {
 		return styleNone
@@ -122,7 +112,6 @@ func (btn richButton) html() string {
 	}
 }
 
-// keyboard строит inline-клавиатуру для запасного текстового сообщения.
 func (m richMsg) keyboard() *models.InlineKeyboardMarkup {
 	rows := make([][]models.InlineKeyboardButton, 0, len(m.Rows))
 	for _, row := range m.Rows {
@@ -155,8 +144,6 @@ var (
 	reLineSpaces = regexp.MustCompile(`[ \t]+\n`)
 )
 
-// plainText превращает rich HTML в обычный текст. Используется, только если
-// Telegram отверг rich-сообщение: алерт должен дойти в любом виде.
 func plainText(richHTML string) string {
 	s := reButtonRow.ReplaceAllString(richHTML, "")
 	s = reCellBreak.ReplaceAllString(s, "  ")
@@ -172,24 +159,15 @@ func plainText(richHTML string) string {
 	return s
 }
 
-// tgTime рисует время, которое клиент Telegram покажет в часовом поясе
-// читателя. Текст внутри — запасной вариант в таймзоне лимитера.
 func tgTime(t time.Time, loc *time.Location, format string) string {
 	return fmt.Sprintf(`<tg-time unix="%d" format="%s">%s</tg-time>`,
 		t.Unix(), format, t.In(loc).Format("02.01.2006 15:04:05"))
 }
 
-// tableRow — строка таблицы «заголовок | значение». value уже должен быть
-// экранирован вызывающим кодом.
 func tableRow(header, value string) string {
 	return "<tr><th align=\"left\">" + escapeHTML(header) + "</th><td>" + value + "</td></tr>"
 }
 
-// richToInput переводит блоки полученного rich-сообщения обратно во входные
-// блоки, чтобы отредактировать сообщение, сохранив содержимое. Блоки кнопок
-// отбрасываются; блоки, которые не удаётся перенести (медиа, неизвестные
-// типы), пропускаются — лимитер их не отправляет. dropped — сколько блоков
-// содержимого (не кнопок) потеряно при переносе.
 func richToInput(blocks []models.RichBlock) (out []models.InputRichBlock, dropped int) {
 	out = make([]models.InputRichBlock, 0, len(blocks))
 	for _, blk := range blocks {

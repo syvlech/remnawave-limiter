@@ -540,8 +540,6 @@ func TestLoadConfig_IgnoredNodeUUIDs_Custom(t *testing.T) {
 }
 
 func TestLoadConfig_NumericTypo_IsRejected(t *testing.T) {
-	// Опечатка в числовом параметре раньше молча подменялась дефолтом,
-	// и лимитер работал не с теми порогами, что задал администратор.
 	cases := []struct{ key, value string }{
 		{"CHECK_INTERVAL", "6O"},
 		{"TOLERANCE", "one"},
@@ -591,7 +589,6 @@ func TestLoadConfig_APIURL_TrailingSlashTrimmed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// Пути в клиенте начинаются со слэша: иначе получилось бы //api/nodes.
 	if cfg.RemnawaveAPIURL != "https://panel.example.com" {
 		t.Errorf("RemnawaveAPIURL = %q, want %q", cfg.RemnawaveAPIURL, "https://panel.example.com")
 	}
@@ -666,8 +663,6 @@ func TestLoadConfig_Language_Invalid(t *testing.T) {
 func TestLoadConfig_WhitelistUserIDs_MustBeNumeric(t *testing.T) {
 	clearEnv()
 	setRequiredEnv()
-	// UUID остался в конфиге от версии до 4.0 — он никогда не совпал бы
-	// с числовым ID и молча не работал бы.
 	os.Setenv("WHITELIST_USER_IDS", "111,4f2d0f6d-551f-4c98-a20e-058da935673c")
 	defer os.Unsetenv("WHITELIST_USER_IDS")
 

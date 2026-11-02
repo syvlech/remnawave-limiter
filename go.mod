@@ -2,12 +2,12 @@ module github.com/remnawave/limiter
 
 go 1.27
 
-toolchain go1.27.2
+toolchain go1.27.3
 
 require (
 	github.com/go-telegram/bot v1.27.0
 	github.com/joho/godotenv v1.5.1
-	github.com/oschwald/maxminddb-golang/v2 v2.8.0
+	github.com/oschwald/maxminddb-golang/v2 v2.9.0
 	github.com/redis/go-redis/v9 v9.23.0
 	github.com/sirupsen/logrus v1.10.2
 )

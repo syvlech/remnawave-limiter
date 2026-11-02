@@ -61,7 +61,6 @@ func (b *Bot) setPending(adminID int64, key string, chatID int64, messageID int)
 	b.pending[adminID] = pendingInput{key: key, chatID: chatID, messageID: messageID, expires: time.Now().Add(pendingTTL)}
 }
 
-// pendingFor возвращает ожидание ввода админа, не снимая его.
 func (b *Bot) pendingFor(adminID int64) (pendingInput, bool) {
 	b.pendingMu.Lock()
 	defer b.pendingMu.Unlock()
@@ -76,8 +75,6 @@ func (b *Bot) pendingFor(adminID int64) (pendingInput, bool) {
 	return p, true
 }
 
-// keepPending возвращает ожидание после ошибочного ввода с прежним сроком:
-// ошибки не должны продлевать его бесконечно.
 func (b *Bot) keepPending(adminID int64, p pendingInput) {
 	b.pendingMu.Lock()
 	defer b.pendingMu.Unlock()
@@ -90,8 +87,6 @@ func (b *Bot) clearPending(adminID int64) {
 	delete(b.pending, adminID)
 }
 
-// settingsGroup — раздел меню настроек. Ключи, которых нет ни в одном разделе
-// (например, новые записи реестра), попадают в раздел groupOther.
 type settingsGroup struct {
 	id   string
 	keys []string
@@ -107,8 +102,6 @@ var settingsGroups = []settingsGroup{
 	{id: "service", keys: []string{"USER_CACHE_TTL", "DAILY_REPORT", "LOG_LEVEL"}},
 }
 
-// settingPresets — быстрые значения на экране редактирования числовых параметров.
-// Любое другое значение можно отправить сообщением.
 var settingPresets = map[string][]string{
 	"CHECK_INTERVAL":             {"30", "60", "120", "300"},
 	"ACTIVE_IP_WINDOW":           {"120", "300", "600", "900"},
@@ -124,7 +117,6 @@ var settingPresets = map[string][]string{
 	"USER_CACHE_TTL":             {"60", "300", "600", "1800"},
 }
 
-// minuteKeys показываются вместе с человекочитаемой длительностью; 0 — «навсегда».
 var minuteKeys = map[string]bool{
 	"AUTO_DISABLE_DURATION": true,
 	"IGNORE_DURATION":       true,
@@ -146,7 +138,6 @@ type itemGroup struct {
 	items []SettingItem
 }
 
-// groupedItems раскладывает параметры по разделам в порядке меню.
 func groupedItems(items []SettingItem) []itemGroup {
 	byKey := make(map[string]SettingItem, len(items))
 	for _, it := range items {
@@ -182,7 +173,6 @@ func groupTitle(id string) string {
 	return i18n.T("settings.group." + id)
 }
 
-// optionalT возвращает перевод или пустую строку, если ключа нет.
 func optionalT(key string) string {
 	if v := i18n.T(key); v != key {
 		return v
@@ -190,7 +180,6 @@ func optionalT(key string) string {
 	return ""
 }
 
-// displayValue — значение параметра в виде rich HTML.
 func displayValue(it SettingItem) string {
 	if it.Kind == SettingBool {
 		if it.Display == "true" {
@@ -214,7 +203,6 @@ func overriddenMark(it SettingItem) string {
 	return ""
 }
 
-// notice — строка-уведомление над содержимым экрана (результат последнего действия).
 type notice struct {
 	text  string
 	isErr bool
@@ -436,12 +424,6 @@ func (b *Bot) handleSettingsCommand(ctx context.Context, msg *models.Message) {
 	}
 }
 
-// handlePendingInput принимает значение, введённое после «✏️», и обновляет
-// то же сообщение меню. Значение принимается только в том чате, где открыт
-// экран редактирования: в группе админ может просто переписываться с
-// коллегами, поэтому там значением считается только число, а остальные
-// сообщения бот не трогает. В личке с ботом принимается любой текст, чтобы
-// на опечатку пришла ошибка. После ошибки ввод можно сразу повторить.
 func (b *Bot) handlePendingInput(ctx context.Context, msg *models.Message) {
 	if b.settings == nil {
 		return
@@ -478,7 +460,6 @@ func (b *Bot) handlePendingInput(ctx context.Context, msg *models.Message) {
 	}
 }
 
-// looksNumeric — похоже ли сообщение на значение числового параметра.
 func looksNumeric(s string) bool {
 	if s == "" || strings.ContainsAny(s, " \t\n") {
 		return false
@@ -627,8 +608,6 @@ func (b *Bot) deleteMessage(ctx context.Context, chatID int64, messageID int) {
 	}
 }
 
-// threadFor возвращает тему форума только для основного чата: в личке
-// с админом message_thread_id не нужен.
 func (b *Bot) threadFor(chatID int64) int {
 	if chatID == b.chatID {
 		return int(b.threadID)

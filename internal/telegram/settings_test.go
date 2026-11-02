@@ -11,7 +11,6 @@ import (
 	"github.com/go-telegram/bot/models"
 )
 
-// fakeSettings — SettingsProvider в памяти: значения и признак переопределения.
 type fakeSettings struct {
 	items   []SettingItem
 	applied []string
@@ -81,7 +80,6 @@ func newSettingsBot(t *testing.T) (*Bot, *fakeAPI, *fakeSettings) {
 	return b, fake, fs
 }
 
-// adminMessage — сообщение админа в личке с ботом (чат 100, где открыто меню).
 func adminMessage(text string, id int) *models.Update {
 	return chatMessage(100, models.ChatTypePrivate, text, id)
 }
@@ -194,7 +192,6 @@ func TestSettingsEdit_PresetsAndTypedValue(t *testing.T) {
 		t.Errorf("сброс доступен только для переопределённых значений:\n%s", html)
 	}
 
-	// Неверный ввод: ошибка на том же сообщении, ожидание ввода сохраняется.
 	b.handleUpdate(context.Background(), nil, adminMessage("abc", 10))
 	html = lastEditHTML(t, fake)
 	if !strings.Contains(html, "<blockquote>❌ ожидается целое число") {
@@ -296,8 +293,6 @@ func TestSettingsGroups_CoverRegistryKeysOnce(t *testing.T) {
 	}
 }
 
-// Сообщение в другом чате — не значение настройки: его нельзя удалять,
-// а ожидание ввода должно сохраниться.
 func TestPendingInput_IgnoresOtherChats(t *testing.T) {
 	b, fake, fs := newSettingsBot(t)
 	b.handleUpdate(context.Background(), nil, callbackUpdate(42, "cfg:edit:CHECK_INTERVAL"))
@@ -313,8 +308,6 @@ func TestPendingInput_IgnoresOtherChats(t *testing.T) {
 	}
 }
 
-// В группе админ переписывается с коллегами: обычный текст остаётся в чате,
-// значением считается только число.
 func TestPendingInput_GroupAcceptsOnlyNumbers(t *testing.T) {
 	b, fake, fs := newSettingsBot(t)
 	u := callbackUpdate(42, "cfg:edit:CHECK_INTERVAL")
@@ -340,7 +333,6 @@ func TestPendingInput_GroupAcceptsOnlyNumbers(t *testing.T) {
 	}
 }
 
-// Ошибочный ввод оставляет ожидание, но не продлевает его срок.
 func TestPendingInput_ErrorKeepsOriginalExpiry(t *testing.T) {
 	b, _, _ := newSettingsBot(t)
 	b.handleUpdate(context.Background(), nil, callbackUpdate(42, "cfg:edit:CHECK_INTERVAL"))
@@ -361,8 +353,6 @@ func TestPendingInput_ErrorKeepsOriginalExpiry(t *testing.T) {
 	}
 }
 
-// Меню, которое нельзя отредактировать (удалено или недоступно), открывается
-// новым сообщением, и введённое значение обновляет уже его.
 func TestSettings_UneditableMenuIsResent(t *testing.T) {
 	b, fake, fs := newSettingsBot(t)
 	fake.rejectEdit = true

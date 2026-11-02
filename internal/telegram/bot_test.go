@@ -27,14 +27,10 @@ type apiCall struct {
 	fields map[string]string
 }
 
-// fakeAPI — минимальный Bot API: запоминает вызовы и отвечает сообщением.
 type fakeAPI struct {
-	mu    sync.Mutex
-	calls []apiCall
-	// rejectRich имитирует Telegram, который не принял rich-разметку.
+	mu         sync.Mutex
+	calls      []apiCall
 	rejectRich bool
-	// rejectEdit имитирует сообщение, которое нельзя отредактировать
-	// (удалено или недоступно боту).
 	rejectEdit bool
 }
 
@@ -110,7 +106,6 @@ func TestNewBot_RejectsMalformedToken(t *testing.T) {
 	}
 }
 
-// richHTML достаёт html из поля rich_message запроса.
 func richHTML(t *testing.T, fields map[string]string) string {
 	t.Helper()
 	var rm models.InputRichMessage
@@ -223,7 +218,6 @@ func callbackUpdate(fromID int64, data string) *models.Update {
 	}
 }
 
-// Алерт, отправленный до перехода на rich, редактируется как раньше.
 func TestHandleCallback_LegacyTextAlertEditsMessage(t *testing.T) {
 	b, fake := newTestBot(t, 100, 0)
 
@@ -247,12 +241,9 @@ func TestHandleCallback_LegacyTextAlertEditsMessage(t *testing.T) {
 	if f["message_id"] != "5" || f["chat_id"] != "100" {
 		t.Errorf("редактируется не то сообщение: %v", f)
 	}
-	// Исходный текст приходит без разметки и должен быть экранирован заново.
 	if !strings.HasPrefix(f["text"], "Нарушение &lt;user&gt;") {
 		t.Errorf("исходный текст не экранирован: %q", f["text"])
 	}
-	// Кнопки алерта убираются, но после отключения остаётся «Включить» —
-	// как и у rich-алерта.
 	if f["reply_markup"] != `{"inline_keyboard":[[{"text":"🔓 Включить подписку","style":"success","callback_data":"enable:77"}]]}` {
 		t.Errorf("должна остаться только кнопка включения, reply_markup = %s", f["reply_markup"])
 	}
@@ -367,8 +358,6 @@ func TestHandleCallback_NonAdminRejected(t *testing.T) {
 	}
 }
 
-// Полный цикл: обновление из getUpdates доходит до обработчика,
-// а отмена контекста останавливает polling.
 func TestStartPolling_DeliversUpdatesAndStops(t *testing.T) {
 	var mu sync.Mutex
 	served := false
@@ -456,8 +445,6 @@ func TestParseActionData(t *testing.T) {
 	}
 }
 
-// Длительность временных действий хранится в кнопке, а не берётся из конфига
-// при нажатии, и укладывается в лимит callback data в 64 байта.
 func TestAlertButtons_CarryDuration(t *testing.T) {
 	b, fake := newTestBot(t, 100, 0)
 
@@ -524,8 +511,6 @@ func inaccessibleCallbackUpdate(fromID int64, data string) *models.Update {
 	return u
 }
 
-// Алерт недоступен боту: действие выполняется, а итог уходит ответом на алерт,
-// чтобы другие админы видели, что кнопку уже нажали.
 func TestHandleCallback_InaccessibleAlertGetsSeparateReport(t *testing.T) {
 	b, fake := newTestBot(t, 100, 0)
 	b.SetActionHandler(func(context.Context, Action) error { return nil })
@@ -552,7 +537,6 @@ func TestHandleCallback_InaccessibleAlertGetsSeparateReport(t *testing.T) {
 	assertBalancedHTML(t, html)
 }
 
-// Telegram отверг пересобранный rich-алерт: итог всё равно доходит до чата.
 func TestHandleCallback_RejectedRichEditFallsBackToReport(t *testing.T) {
 	b, fake := newTestBot(t, 100, 0)
 	fake.rejectRich = true
@@ -574,8 +558,6 @@ func TestHandleCallback_RejectedRichEditFallsBackToReport(t *testing.T) {
 	}
 }
 
-// Ответ на callback уходит даже после отмены контекста обновления, иначе у
-// админа бесконечно крутится индикатор на кнопке.
 func TestAnswerCallback_SurvivesCancelledContext(t *testing.T) {
 	b, fake := newTestBot(t, 100, 0)
 	ctx, cancel := context.WithCancel(context.Background())

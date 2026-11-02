@@ -6,9 +6,6 @@ import (
 	"testing"
 )
 
-// go vet не проверяет строки формата, полученные из T(), поэтому несоответствие
-// глагола и типа аргумента ловится только здесь. restore.message принимает
-// числовой ID пользователя (Remnawave 3.x), а не строку.
 func TestRestoreMessageFormat(t *testing.T) {
 	for _, lang := range []string{"ru", "en"} {
 		SetLanguage(lang)
@@ -23,7 +20,6 @@ func TestRestoreMessageFormat(t *testing.T) {
 	}
 }
 
-// Ключи должны существовать в обеих локалях, иначе T() тихо вернёт сам ключ.
 func TestTranslationKeysMatchAcrossLocales(t *testing.T) {
 	ru, en := translations["ru"], translations["en"]
 

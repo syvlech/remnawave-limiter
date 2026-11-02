@@ -128,8 +128,6 @@ func run() int {
 		if err != nil {
 			logger.WithError(err).Error("Не удалось применить сохранённые настройки, использую .env")
 		} else {
-			// Отброшенные значения удаляются из Redis: иначе бот показывал бы
-			// «всё из .env», а они продолжали бы мешать новым настройкам.
 			for key, reason := range rejected {
 				logger.WithError(reason).WithFields(logrus.Fields{
 					"key":   key,

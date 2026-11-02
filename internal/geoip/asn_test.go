@@ -50,7 +50,6 @@ func TestDBResolver_Reload_EmptyPath_ReturnsError(t *testing.T) {
 	}
 }
 
-// mmdbString кодирует UTF-8 строку в формате MaxMind DB.
 func mmdbString(s string) []byte {
 	if len(s) < 29 {
 		return append([]byte{2<<5 | byte(len(s))}, s...)
@@ -58,8 +57,6 @@ func mmdbString(s string) []byte {
 	return append([]byte{2<<5 | 29, byte(len(s) - 29)}, s...)
 }
 
-// mmdbUint кодирует беззнаковое целое типа typ (5 — uint16, 6 — uint32,
-// 9 — uint64) минимальным числом байт.
 func mmdbUint(typ byte, v uint64) []byte {
 	var payload []byte
 	for v > 0 {
@@ -80,12 +77,9 @@ func mmdbMap(pairs ...[]byte) []byte {
 	return out
 }
 
-// writeTestMMDB пишет минимальную IPv4-базу из одного узла: любой адрес
-// попадает в запись с указанными ASN и организацией.
 func writeTestMMDB(t *testing.T, path string, asn uint32, org string) {
 	t.Helper()
 	const nodeCount = 1
-	// Обе записи узла (24 бита) указывают на начало секции данных.
 	ptr := nodeCount + 16
 	tree := []byte{0, 0, byte(ptr), 0, 0, byte(ptr)}
 
@@ -144,8 +138,6 @@ func TestDBResolver_LookupAndReload(t *testing.T) {
 	}
 }
 
-// Reload закрывает старую базу (munmap), поэтому не должен пересекаться
-// с поисками, которые ещё читают её. Тест имеет смысл с -race.
 func TestDBResolver_ReloadDuringLookups(t *testing.T) {
 	dir := t.TempDir()
 	paths := []string{filepath.Join(dir, "a.mmdb"), filepath.Join(dir, "b.mmdb")}

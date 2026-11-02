@@ -17,7 +17,6 @@ func testBotLogger(level logrus.Level) (*botLogger, *bytes.Buffer) {
 	return newBotLogger(l, "123456:SECRET-TOKEN"), buf
 }
 
-// Сбои фонового long polling наш код не видит — они обязаны быть заметны.
 func TestBotLogger_PollingFailureIsVisible(t *testing.T) {
 	bl, buf := testBotLogger(logrus.InfoLevel)
 
@@ -31,8 +30,6 @@ func TestBotLogger_PollingFailureIsVisible(t *testing.T) {
 	}
 }
 
-// Цикл polling ретраится не реже раза в 5 секунд: без подавления повторов
-// он заливает вывод.
 func TestBotLogger_RepeatsSuppressed(t *testing.T) {
 	bl, buf := testBotLogger(logrus.InfoLevel)
 
@@ -56,7 +53,6 @@ func TestBotLogger_DistinctMessagesNotSuppressed(t *testing.T) {
 	}
 }
 
-// В отладочные сообщения и ошибки сети может попасть токен бота.
 func TestBotLogger_RedactsToken(t *testing.T) {
 	bl, buf := testBotLogger(logrus.DebugLevel)
 
@@ -82,8 +78,6 @@ func TestBotLogger_DebugSkippedWhenLevelDisabled(t *testing.T) {
 	}
 }
 
-// Набор текстов ошибок у библиотеки маленький, но карта дедупликации всё равно
-// не должна расти без границы.
 func TestBotLogger_TrackedMessagesBounded(t *testing.T) {
 	bl, _ := testBotLogger(logrus.InfoLevel)
 

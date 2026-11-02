@@ -34,8 +34,6 @@ const (
 
 	webhookGracePeriod = 15 * time.Second
 
-	// maxTolerance ограничивает допуск сверху: при насыщении limit+допуск
-	// гарантированно не переполняет int.
 	maxTolerance = 1 << 30
 )
 
@@ -339,9 +337,6 @@ func (m *Monitor) checkUser(ctx context.Context, userID int64, activeIPs []api.A
 		}
 	}
 
-	// Группировка по ASN или подсетям может только уменьшить число устройств,
-	// поэтому при числе IP не больше лимита нарушения нет ни в каком режиме —
-	// ASN-поиск и группировку для таких пользователей не делаем.
 	if len(uniqueMap) <= limit {
 		return
 	}
@@ -543,9 +538,6 @@ func (m *Monitor) getUser(ctx context.Context, userID int64) (*api.CachedUser, e
 	return cu, nil
 }
 
-// effectiveTolerance — допуск сверх лимита: TOLERANCE + floor(limit × TOLERANCE_MULTIPLIER).
-// Считается с насыщением: переполнение int дало бы отрицательный порог,
-// и под бан попали бы все пользователи с подключениями.
 func effectiveTolerance(cfg *config.Config, limit int) int {
 	t := float64(cfg.Tolerance) + math.Floor(float64(limit)*cfg.ToleranceMultiplier)
 	switch {
@@ -591,8 +583,6 @@ func (m *Monitor) handleAutoAction(ctx context.Context, user *api.CachedUser, ip
 			}).Error("Пользователь отключён, но таймер восстановления не установлен — включите вручную")
 		}
 	} else if err := m.cache.RemoveRestoreTimer(ctx, user.UserID); err != nil {
-		// Отключение навсегда: таймер от прежнего временного отключения иначе
-		// включил бы пользователя обратно.
 		m.logger.WithError(err).WithField("userID", user.UserID).
 			Error("Пользователь отключён навсегда, но старый таймер восстановления не снят — он может включить пользователя")
 	}
@@ -719,8 +709,6 @@ func (m *Monitor) nextDailyReport(now time.Time, hour, minute int) time.Time {
 	now = now.In(m.location)
 	next := time.Date(now.Year(), now.Month(), now.Day(), hour, minute, 0, 0, m.location)
 	if !next.After(now) {
-		// Следующий календарный день, а не +24ч: в дни перехода на летнее
-		// время и обратно сутки длятся 23 или 25 часов.
 		next = time.Date(now.Year(), now.Month(), now.Day()+1, hour, minute, 0, 0, m.location)
 	}
 	return next

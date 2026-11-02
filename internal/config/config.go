@@ -66,8 +66,6 @@ var (
 	LogFormats = []string{"text", "json"}
 )
 
-// MaxToleranceMultiplier — верхняя граница TOLERANCE_MULTIPLIER. Больший множитель
-// ничего не даёт на практике, а огромные значения переполняют int при расчёте порога.
 const MaxToleranceMultiplier = 100
 
 func LoadConfig(envPath string) (*Config, error) {
@@ -222,8 +220,6 @@ func (cfg *Config) Validate() error {
 		}
 	}
 
-	// NaN и Inf проходят strconv.ParseFloat, а int(NaN) на amd64 — огромное
-	// отрицательное число: порог бана ушёл бы ниже нуля для всех пользователей.
 	if math.IsNaN(cfg.ToleranceMultiplier) || cfg.ToleranceMultiplier < 0 || cfg.ToleranceMultiplier > MaxToleranceMultiplier {
 		return fmt.Errorf("TOLERANCE_MULTIPLIER должен быть в диапазоне 0..%d, получено %v", MaxToleranceMultiplier, cfg.ToleranceMultiplier)
 	}
@@ -291,11 +287,6 @@ func (cfg *Config) Validate() error {
 	return nil
 }
 
-// validateThresholdReachable проверяет, что VIOLATION_THRESHOLD вообще можно
-// набрать. Пороговый счётчик растёт не чаще раза за COOLDOWN (кулдаун ставится
-// до инкремента), а следующее нарушение замечается на ближайшей проверке после
-// него. Если N-1 таких шагов не укладываются в окно, счётчик истекает раньше,
-// чем дойдёт до порога, и лимитер молча перестаёт действовать.
 func validateThresholdReachable(cfg *Config) error {
 	if cfg.ViolationThreshold <= 1 {
 		return nil
@@ -442,12 +433,6 @@ func (l *loader) getEnvBool(key string, defaultValue bool) bool {
 	return b
 }
 
-// MergeSavedOverrides применяет переопределения, сохранённые ботом в Redis,
-// поверх .env. Ключи вне реестра и значения, которые не проходят валидацию,
-// отбрасываются по одному, а не все разом: иначе одно устаревшее значение
-// (например, после обновления с более строгой проверкой) молча отменяло бы
-// все остальные настройки при каждом запуске. Возвращает итоговый конфиг,
-// применённые переопределения и причины отказа для отброшенных ключей.
 func MergeSavedOverrides(envPath string, saved map[string]string) (*Config, map[string]string, map[string]error, error) {
 	rejected := make(map[string]error)
 	accepted := make(map[string]string, len(saved))
@@ -463,8 +448,6 @@ func MergeSavedOverrides(envPath string, saved map[string]string) (*Config, map[
 		return cfg, accepted, rejected, nil
 	}
 
-	// Вместе значения не проходят — набираем совместимые по одному
-	// в стабильном порядке, чтобы результат не зависел от обхода map.
 	keys := make([]string, 0, len(accepted))
 	for key := range accepted {
 		keys = append(keys, key)

@@ -30,9 +30,6 @@ type Client struct {
 	logger     *logrus.Logger
 	retryDelay time.Duration
 
-	// rawSecretHeader — слать ли сам секрет в X-Webhook-Secret. Включено ради
-	// совместимости со старыми получателями; кто видел один запрос, узнаёт
-	// секрет и может подписать что угодно, поэтому лучше проверять подпись.
 	rawSecretHeader bool
 }
 
@@ -60,12 +57,10 @@ func NewClient(url, secret string, logger *logrus.Logger) *Client {
 	}
 }
 
-// SetRawSecretHeader включает или отключает заголовок X-Webhook-Secret.
 func (c *Client) SetRawSecretHeader(enabled bool) {
 	c.rawSecretHeader = enabled
 }
 
-// sign возвращает HMAC-SHA256 сообщения в формате "sha256=<hex>".
 func (c *Client) sign(parts ...[]byte) string {
 	mac := hmac.New(sha256.New, []byte(c.secret))
 	for _, p := range parts {
@@ -83,9 +78,6 @@ func (c *Client) Send(ctx context.Context, payload *Payload) {
 
 	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
 
-	// X-Signature подписывает только тело, поэтому старый запрос можно
-	// переиграть с новым X-Timestamp. X-Signature-V2 подписывает
-	// "<timestamp>.<тело>" — по нему получатель отбрасывает повторы.
 	var sigs signatures
 	if c.secret != "" {
 		sigs.body = c.sign(data)

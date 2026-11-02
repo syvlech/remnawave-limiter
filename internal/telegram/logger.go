@@ -68,8 +68,6 @@ func (l *botLogger) Debugf(format string, args ...any) {
 	l.logger.WithField("src", "tgbot").Debug(l.redact(fmt.Sprintf(format, args...)))
 }
 
-// Errorf получает только ошибки фонового polling и разбора обновлений:
-// ошибки наших вызовов библиотека возвращает, и их логирует вызывающий код.
 func (l *botLogger) Errorf(format string, args ...any) {
 	msg := l.redact(fmt.Sprintf(format, args...))
 	entry := l.logger.WithField("src", "tgbot")

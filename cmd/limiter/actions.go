@@ -11,14 +11,12 @@ import (
 	"github.com/remnawave/limiter/internal/telegram"
 )
 
-// userActions — действия в панели, которые выполняют кнопки алертов.
 type userActions interface {
 	DisableUser(ctx context.Context, userID int64) error
 	EnableUser(ctx context.Context, userID int64) error
 	DropConnections(ctx context.Context, userIDs []int64) error
 }
 
-// actionStore — состояние в Redis, которое меняют кнопки алертов.
 type actionStore interface {
 	SetRestoreTimer(ctx context.Context, userID int64, duration time.Duration) error
 	RemoveRestoreTimer(ctx context.Context, userID int64) error
@@ -26,7 +24,6 @@ type actionStore interface {
 	AddToWhitelistTemp(ctx context.Context, userID int64, ttl time.Duration) error
 }
 
-// newActionHandler выполняет кнопку, нажатую админом в алерте.
 func newActionHandler(panel userActions, store actionStore, cfg *config.Provider, logger *logrus.Logger) telegram.ActionHandler {
 	return func(ctx context.Context, a telegram.Action) error {
 		switch a.Name {
@@ -37,8 +34,6 @@ func newActionHandler(panel userActions, store actionStore, cfg *config.Provider
 			if err := panel.DisableUser(ctx, a.UserID); err != nil {
 				return err
 			}
-			// Отключение навсегда: таймер от прежнего временного отключения
-			// иначе включил бы пользователя обратно.
 			return store.RemoveRestoreTimer(ctx, a.UserID)
 
 		case "disable_temp":
@@ -59,8 +54,6 @@ func newActionHandler(panel userActions, store actionStore, cfg *config.Provider
 			if err := panel.EnableUser(ctx, a.UserID); err != nil {
 				return err
 			}
-			// Включён раньше срока: старый таймер больше не нужен, а позже он
-			// включил бы пользователя, которого успели отключить навсегда.
 			return store.RemoveRestoreTimer(ctx, a.UserID)
 
 		case "ignore":
@@ -77,9 +70,6 @@ func newActionHandler(panel userActions, store actionStore, cfg *config.Provider
 	}
 }
 
-// buttonMinutes — длительность временного действия. Новые кнопки несут её
-// в себе; для кнопок, отправленных до этого, берётся текущая настройка, а 0
-// там означает, что длительность восстановить нельзя.
 func buttonMinutes(a telegram.Action, current int) int {
 	if a.Minutes > 0 {
 		return a.Minutes

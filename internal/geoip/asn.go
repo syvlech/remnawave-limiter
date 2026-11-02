@@ -21,11 +21,6 @@ type NopResolver struct{}
 
 func (NopResolver) Lookup(string) (ASNInfo, bool) { return ASNInfo{}, false }
 
-// DBResolver ищет ASN в базе MaxMind и умеет подменять её на лету.
-//
-// Lookup держит RLock на время поиска и декодирования, а Reload/Close меняют
-// reader под Lock и закрывают старую базу только после этого: Close делает
-// munmap, и поиск, идущий в этот момент по старой базе, уронил бы процесс.
 type DBResolver struct {
 	mu     sync.RWMutex
 	reader *maxminddb.Reader
@@ -58,7 +53,6 @@ func (d *DBResolver) Reload(path string) error {
 	d.reader = r
 	d.mu.Unlock()
 
-	// Под Lock новых поисков по старой базе уже нет, а начатые завершились.
 	if old != nil {
 		_ = old.Close()
 	}

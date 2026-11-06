@@ -6,7 +6,7 @@
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
-[English version](README_en.md)
+[English version](README_en.md) · [简体中文](README_zh.md)
 
 ## Возможности
 

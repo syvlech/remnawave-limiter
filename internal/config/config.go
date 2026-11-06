@@ -238,8 +238,8 @@ func (cfg *Config) Validate() error {
 	if _, err := time.LoadLocation(cfg.Timezone); err != nil {
 		return fmt.Errorf("TIMEZONE: неверная таймзона %q: %v", cfg.Timezone, err)
 	}
-	if cfg.Language != "ru" && cfg.Language != "en" {
-		return fmt.Errorf("LANGUAGE должен быть \"ru\" или \"en\", получено %q", cfg.Language)
+	if cfg.Language != "ru" && cfg.Language != "en" && cfg.Language != "zh" {
+		return fmt.Errorf("LANGUAGE должен быть \"ru\", \"en\" или \"zh\", получено %q", cfg.Language)
 	}
 	if !contains(LogLevels, cfg.LogLevel) {
 		return fmt.Errorf("LOG_LEVEL должен быть одним из %v, получено %q", LogLevels, cfg.LogLevel)

@@ -21,7 +21,7 @@ func TestRegistry_EveryFieldIsFullyWired(t *testing.T) {
 				t.Errorf("Display не знает ключ %s — забыт case в config.Display", f.Key)
 			}
 
-			for _, lang := range []string{"ru", "en"} {
+			for _, lang := range []string{"ru", "en", "zh"} {
 				i18n.SetLanguage(lang)
 				if got := i18n.T(f.TitleKey); got == f.TitleKey {
 					t.Errorf("нет перевода %s для языка %s", f.TitleKey, lang)

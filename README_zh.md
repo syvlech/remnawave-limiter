@@ -77,7 +77,7 @@
 如果面板尚未升级，请在 `docker-compose.yml` 中将镜像固定为 3.0.0 版本：
 
 ```yaml
-image: ghcr.io/syvlech/remnawave-limiter:b422f43
+image: ghcr.io/avsba001/remnawave-limiter:b422f43
 ```
 
 `b422f43` 是 3.0.0 版本对应的提交。ghcr 中没有单独的 `3.0.0` 镜像标签：CI 仅为 `v*` 形式的引用构建语义化版本标签，而该版本使用的是不带前缀的 `3.0.0` 标签。
@@ -87,8 +87,8 @@ image: ghcr.io/syvlech/remnawave-limiter:b422f43
 ```bash
 mkdir -p /opt/remnawave-limiter && cd /opt/remnawave-limiter
 
-curl -O https://raw.githubusercontent.com/syvlech/remnawave-limiter/master/docker-compose.yml
-curl -O https://raw.githubusercontent.com/syvlech/remnawave-limiter/master/.env.example
+curl -O https://raw.githubusercontent.com/avsba001/remnawave-limiter/master/docker-compose.yml
+curl -O https://raw.githubusercontent.com/avsba001/remnawave-limiter/master/.env.example
 
 cp .env.example .env && nano .env
 ```

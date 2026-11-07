@@ -24,7 +24,7 @@ services:
         max-file: "3"
 
   redis:
-    image: valkey/valkey:8.1-alpine
+    image: valkey/valkey:9-alpine
     container_name: remnawave-limiter-redis
     restart: unless-stopped
     command: ["valkey-server", "--appendonly", "yes"]

@@ -144,7 +144,7 @@ func newBot(token string, chatID, threadID int64, adminIDs []int64, proxyURL str
 		return nil, fmt.Errorf("TELEGRAM_PROXY: %w", err)
 	}
 	if proxyURL != "" {
-		logger.WithField("proxy", maskProxyURL(proxyURL)).Info("Telegram бот: используется прокси")
+		logger.WithField("proxy", maskProxyURL(proxyURL)).Info(i18n.T("log.telegram_proxy"))
 	}
 
 	admins := make(map[int64]bool, len(adminIDs))
@@ -228,7 +228,7 @@ func (b *Bot) sendRich(ctx context.Context, chatID int64, threadID int, m richMs
 		return 0, err
 	}
 
-	b.logger.WithError(err).Warn("Telegram бот: rich-сообщение отклонено, отправляю обычным текстом")
+	b.logger.WithError(err).Warn(i18n.T("log.telegram_rich_rejected"))
 	params := &tgbot.SendMessageParams{
 		ChatID:             chatID,
 		MessageThreadID:    threadID,
@@ -266,7 +266,7 @@ func (b *Bot) editRich(ctx context.Context, chatID int64, messageID int, m richM
 		return err
 	}
 
-	b.logger.WithError(err).Warn("Telegram бот: rich-редактирование отклонено, обновляю обычным текстом")
+	b.logger.WithError(err).Warn(i18n.T("log.telegram_rich_edit_rejected"))
 	_, err = b.api.EditMessageText(editCtx, &tgbot.EditMessageTextParams{
 		ChatID:             chatID,
 		MessageID:          messageID,
@@ -380,7 +380,7 @@ func (b *Bot) RegisterCommands(ctx context.Context) {
 			Commands: cmds,
 			Scope:    &models.BotCommandScopeChat{ChatID: adminID},
 		}); err != nil {
-			b.logger.WithError(err).WithField("admin", adminID).Warn("Telegram бот: не удалось зарегистрировать команды для админа")
+			b.logger.WithError(err).WithField("admin", adminID).Warn(i18n.T("log.telegram_commands_admin_failed"))
 		}
 	}
 
@@ -389,7 +389,7 @@ func (b *Bot) RegisterCommands(ctx context.Context) {
 			Commands: cmds,
 			Scope:    &models.BotCommandScopeChatAdministrators{ChatID: b.chatID},
 		}); err != nil {
-			b.logger.WithError(err).Warn("Telegram бот: не удалось зарегистрировать команды для админов группы")
+			b.logger.WithError(err).Warn(i18n.T("log.telegram_commands_group_failed"))
 		}
 	}
 }
@@ -397,11 +397,11 @@ func (b *Bot) RegisterCommands(ctx context.Context) {
 func (b *Bot) StartPolling(ctx context.Context) {
 	b.RegisterCommands(ctx)
 
-	b.logger.Info("Telegram бот: запущен polling")
+	b.logger.Info(i18n.T("log.telegram_polling_started"))
 
 	b.api.Start(ctx)
 
-	b.logger.Info("Telegram бот: polling остановлен")
+	b.logger.Info(i18n.T("log.telegram_polling_stopped"))
 }
 
 func (b *Bot) handleUpdate(ctx context.Context, _ *tgbot.Bot, update *models.Update) {
@@ -449,11 +449,11 @@ func (b *Bot) handleStatsCommand(ctx context.Context, msg *models.Message) {
 	}
 	m, err := b.statsMessage(ctx)
 	if err != nil {
-		b.logger.WithError(err).Error("Telegram бот: ошибка получения статистики")
+		b.logger.WithError(err).Error(i18n.T("log.telegram_stats_failed"))
 		m = richMsg{HTML: "<p>" + escapeHTML(i18n.T("stats.error")) + "</p>"}
 	}
 	if _, err := b.sendRich(ctx, msg.Chat.ID, b.threadFor(msg.Chat.ID), m); err != nil {
-		b.logger.WithError(err).Error("Telegram бот: ошибка отправки статистики")
+		b.logger.WithError(err).Error(i18n.T("log.telegram_stats_send_failed"))
 	}
 }
 
@@ -464,7 +464,7 @@ func (b *Bot) handleStatsCallback(ctx context.Context, callback *models.Callback
 	}
 	m, err := b.statsMessage(ctx)
 	if err != nil {
-		b.logger.WithError(err).Error("Telegram бот: ошибка получения статистики")
+		b.logger.WithError(err).Error(i18n.T("log.telegram_stats_failed"))
 		b.answerCallback(ctx, callback.ID, i18n.T("stats.error"))
 		return
 	}
@@ -481,7 +481,7 @@ func (b *Bot) answerCallback(ctx context.Context, callbackID, text string) {
 		CallbackQueryID: callbackID,
 		Text:            truncateAnswer(text),
 	}); err != nil {
-		b.logger.WithError(err).Debug("Telegram бот: не удалось ответить на callback")
+		b.logger.WithError(err).Debug(i18n.T("log.telegram_callback_failed"))
 	}
 }
 
@@ -492,7 +492,7 @@ func (b *Bot) handleCallback(ctx context.Context, callback *models.CallbackQuery
 		b.logger.WithFields(logrus.Fields{
 			"from": callerID,
 			"data": callback.Data,
-		}).Warn("Telegram бот: попытка нажать кнопку без прав администратора")
+		}).Warn(i18n.T("log.telegram_unauthorized"))
 		b.answerCallback(ctx, callback.ID, i18n.T("callback.no_access"))
 		return
 	}
@@ -508,7 +508,7 @@ func (b *Bot) handleCallback(ctx context.Context, callback *models.CallbackQuery
 
 	a, ok := parseActionData(callback.Data)
 	if !ok {
-		b.logger.WithField("data", callback.Data).Warn("Telegram бот: устаревший или неверный callback data, кнопка недействительна")
+		b.logger.WithField("data", callback.Data).Warn(i18n.T("log.telegram_callback_stale"))
 		b.answerCallback(ctx, callback.ID, i18n.T("callback.stale"))
 		return
 	}
@@ -532,21 +532,21 @@ func (b *Bot) handleCallback(ctx context.Context, callback *models.CallbackQuery
 	if b.onAction != nil {
 		if err := b.onAction(ctx, a); err != nil {
 			if errors.Is(err, ErrStaleAction) {
-				b.logger.WithError(err).WithFields(fields).Warn("Telegram бот: кнопка устарела, действие не выполнено")
+				b.logger.WithError(err).WithFields(fields).Warn(i18n.T("log.telegram_action_stale"))
 				b.answerCallback(ctx, callback.ID, i18n.T("callback.stale"))
 				return
 			}
-			b.logger.WithError(err).WithFields(fields).Error("Telegram бот: ошибка выполнения действия")
+			b.logger.WithError(err).WithFields(fields).Error(i18n.T("log.telegram_action_failed"))
 			b.answerCallback(ctx, callback.ID, i18n.T("callback.error")+": "+err.Error())
 			return
 		}
 	}
 
-	b.logger.WithFields(fields).Info("Telegram бот: действие выполнено администратором")
+	b.logger.WithFields(fields).Info(i18n.T("log.telegram_action_done"))
 
 	chatID, messageID, msg := callbackMessage(callback)
 	if err := b.markActionDone(ctx, chatID, messageID, msg, a.Name, a.UserID, adminName); err != nil {
-		b.logger.WithError(err).Error("Telegram бот: не удалось отметить выполненное действие")
+		b.logger.WithError(err).Error(i18n.T("log.telegram_action_mark_failed"))
 	}
 
 	b.answerCallback(ctx, callback.ID, i18n.T("callback.done"))
@@ -574,14 +574,14 @@ func (b *Bot) showScreen(ctx context.Context, chatID int64, messageID int, m ric
 			return messageID
 		}
 		if !errors.Is(err, tgbot.ErrorBadRequest) {
-			b.logger.WithError(err).Error("Telegram бот: ошибка обновления сообщения")
+			b.logger.WithError(err).Error(i18n.T("log.telegram_message_edit_failed"))
 			return messageID
 		}
-		b.logger.WithError(err).Warn("Telegram бот: сообщение нельзя отредактировать, отправляю новое")
+		b.logger.WithError(err).Warn(i18n.T("log.telegram_message_new"))
 	}
 	id, err := b.sendRich(ctx, chatID, b.threadFor(chatID), m)
 	if err != nil {
-		b.logger.WithError(err).Error("Telegram бот: ошибка отправки сообщения")
+		b.logger.WithError(err).Error(i18n.T("log.telegram_message_send_failed"))
 		return 0
 	}
 	return id
@@ -604,7 +604,7 @@ func (b *Bot) markActionDone(ctx context.Context, chatID int64, messageID int, m
 		if !errors.Is(err, tgbot.ErrorBadRequest) {
 			return err
 		}
-		b.logger.WithError(err).Warn("Telegram бот: алерт не удалось отредактировать, итог действия отправляю отдельным сообщением")
+		b.logger.WithError(err).Warn(i18n.T("log.telegram_action_reply"))
 	}
 	_, err := b.sendRich(ctx, chatID, b.threadFor(chatID), actionReport(action, userID, adminName, messageID))
 	return err
@@ -635,7 +635,7 @@ func (b *Bot) markRichAlert(ctx context.Context, msg *models.Message, action str
 		b.logger.WithFields(logrus.Fields{
 			"messageID": msg.ID,
 			"dropped":   dropped,
-		}).Warn("Telegram бот: часть содержимого алерта не удалось перенести при отметке действия")
+		}).Warn(i18n.T("log.telegram_alert_content_dropped"))
 	}
 
 	now := time.Now()

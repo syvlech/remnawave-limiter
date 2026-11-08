@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/remnawave/limiter/internal/i18n"
 	"context"
 	"fmt"
 	"net/http"
@@ -55,9 +56,9 @@ func startHealthServer(ctx context.Context, addr string, mon *monitor.Monitor, c
 	}()
 
 	go func() {
-		logger.Infof("Health endpoint слушает %s/healthz", addr)
+		logger.Infof(i18n.T("log.health_listening"), addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.WithError(err).Error("Health endpoint остановлен с ошибкой")
+			logger.WithError(err).Error(i18n.T("log.health_failed"))
 		}
 	}()
 }

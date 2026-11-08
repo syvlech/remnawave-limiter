@@ -1,6 +1,7 @@
 package api
 
 import (
+	"github.com/remnawave/limiter/internal/i18n"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -202,7 +203,7 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body interf
 				"attempt": attempt,
 				"of":      maxRetries,
 				"wait":    wait,
-			}).Warn("Повтор запроса к панели")
+			}).Warn(i18n.T("log.api_retry"))
 
 			select {
 			case <-ctx.Done():
@@ -302,7 +303,7 @@ func (c *Client) GetActiveNodes(ctx context.Context) ([]Node, error) {
 	c.logger.WithFields(logrus.Fields{
 		"total":  len(resp.Response),
 		"active": len(active),
-	}).Debug("Получен список нод")
+	}).Debug(i18n.T("log.nodes_received"))
 	return active, nil
 }
 
@@ -325,7 +326,7 @@ func (c *Client) FetchUsersIPs(ctx context.Context, nodeUUID string) ([]UserIPEn
 	c.logger.WithFields(logrus.Fields{
 		"job":  jobID,
 		"node": nodeUUID,
-	}).Debug("Запущено задание connections/by-node")
+	}).Debug(i18n.T("log.job_started"))
 
 	started := time.Now()
 	delay := jobFirstPollDelay
@@ -365,7 +366,7 @@ func (c *Client) FetchUsersIPs(ctx context.Context, nodeUUID string) ([]UserIPEn
 				"users":   len(resultResp.Response.Result.Users),
 				"elapsed": time.Since(started).Truncate(time.Millisecond),
 				"polls":   i + 1,
-			}).Debug("Задание connections/by-node завершено")
+			}).Debug(i18n.T("log.job_completed"))
 			return resultResp.Response.Result.Users, nil
 		}
 	}

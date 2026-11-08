@@ -122,7 +122,7 @@ func (m *Monitor) check(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		m.logger.WithError(err).Error("Ошибка получения активных нод")
+		m.logger.WithError(err).Error(i18n.T("log.nodes_fetch_failed"))
 		return
 	}
 
@@ -137,11 +137,11 @@ func (m *Monitor) check(ctx context.Context) {
 	}
 
 	if skipped > 0 {
-		m.logger.WithField("skipped", skipped).Debug("Игнорируемые ноды пропущены")
+		m.logger.WithField("skipped", skipped).Debug(i18n.T("log.nodes_ignored"))
 	}
 
 	if len(nodes) == 0 {
-		m.logger.Debug("Нет активных нод")
+		m.logger.Debug(i18n.T("log.nodes_none"))
 		m.lastCheckUnix.Store(time.Now().Unix())
 		return
 	}
@@ -149,14 +149,14 @@ func (m *Monitor) check(ctx context.Context) {
 	results, failed := m.fetchNodes(ctx, nodes)
 
 	if failed == len(nodes) {
-		m.logger.WithField("nodes", failed).Error("Не удалось опросить ни одну ноду, проверка пропущена")
+		m.logger.WithField("nodes", failed).Error(i18n.T("log.nodes_all_failed"))
 		return
 	}
 	if failed > 0 {
 		m.logger.WithFields(logrus.Fields{
 			"failed": failed,
 			"total":  len(nodes),
-		}).Warn("Часть нод не опрошена, проверка выполнена по неполным данным")
+		}).Warn(i18n.T("log.nodes_partial"))
 	}
 
 	m.lastCheckUnix.Store(time.Now().Unix())
@@ -196,13 +196,13 @@ func (m *Monitor) check(ctx context.Context) {
 		"users":      len(aggregated),
 		"violations": st.violations.Load(),
 		"took":       time.Since(started).Truncate(time.Millisecond).String(),
-	}).Info("Проверка")
+	}).Info(i18n.T("log.check"))
 
 	m.logger.WithFields(logrus.Fields{
 		"staleIPs":    staleIPs,
 		"whitelisted": whitelistedIPs,
 		"softAlerts":  st.soft.Load(),
-	}).Debug("Детали проверки")
+	}).Debug(i18n.T("log.check_details"))
 }
 
 type checkStats struct {
@@ -241,7 +241,7 @@ func (m *Monitor) fetchNodes(ctx context.Context, nodes []api.Node) ([]nodeResul
 					m.logger.WithError(err).WithFields(logrus.Fields{
 						"node":     n.Name,
 						"nodeUUID": n.UUID,
-					}).Error("Ошибка получения IP с ноды")
+					}).Error(i18n.T("log.node_ips_failed"))
 				}
 				return
 			}
@@ -311,7 +311,7 @@ func (m *Monitor) checkUser(ctx context.Context, userID int64, activeIPs []api.A
 
 	whitelisted, err := m.cache.IsWhitelisted(ctx, userID)
 	if err != nil {
-		m.logger.WithError(err).WithField("userID", userID).Error("Ошибка проверки whitelist")
+		m.logger.WithError(err).WithField("userID", userID).Error(i18n.T("log.whitelist_check_failed"))
 		return
 	}
 	if whitelisted {
@@ -320,7 +320,7 @@ func (m *Monitor) checkUser(ctx context.Context, userID int64, activeIPs []api.A
 
 	user, err := m.getUser(ctx, userID)
 	if err != nil {
-		m.logger.WithError(err).WithField("userID", userID).Error("Ошибка получения данных пользователя")
+		m.logger.WithError(err).WithField("userID", userID).Error(i18n.T("log.user_fetch_failed"))
 		return
 	}
 
@@ -398,7 +398,7 @@ func (m *Monitor) handleHardViolation(ctx context.Context, user *api.CachedUser,
 
 	active, err := m.cache.IsCooldownActive(ctx, userID)
 	if err != nil {
-		m.logger.WithError(err).WithField("userID", userID).Error("Ошибка проверки cooldown")
+		m.logger.WithError(err).WithField("userID", userID).Error(i18n.T("log.cooldown_check_failed"))
 		return
 	}
 	if active {
@@ -406,19 +406,19 @@ func (m *Monitor) handleHardViolation(ctx context.Context, user *api.CachedUser,
 	}
 
 	if err := m.cache.SetCooldown(ctx, userID, time.Duration(cfg.Cooldown)*time.Second); err != nil {
-		m.logger.WithError(err).WithField("userID", userID).Error("Ошибка установки cooldown")
+		m.logger.WithError(err).WithField("userID", userID).Error(i18n.T("log.cooldown_set_failed"))
 	}
 
 	violationCount, err := m.cache.IncrViolationCount(ctx, userID)
 	if err != nil {
-		m.logger.WithError(err).WithField("userID", userID).Error("Ошибка инкремента счётчика нарушений")
+		m.logger.WithError(err).WithField("userID", userID).Error(i18n.T("log.violation_increment_failed"))
 		violationCount = 1
 	}
 
 	thresholdWindow := time.Duration(cfg.ViolationThresholdWindow) * time.Second
 	thresholdCount, err := m.cache.IncrThresholdCount(ctx, userID, thresholdWindow)
 	if err != nil {
-		m.logger.WithError(err).WithField("userID", userID).Error("Ошибка инкремента порогового счётчика")
+		m.logger.WithError(err).WithField("userID", userID).Error(i18n.T("log.threshold_increment_failed"))
 		thresholdCount = 1
 	}
 
@@ -434,7 +434,7 @@ func (m *Monitor) handleHardViolation(ctx context.Context, user *api.CachedUser,
 	}
 
 	if err := m.cache.ResetThresholdCount(ctx, userID); err != nil {
-		m.logger.WithError(err).WithField("userID", userID).Error("Ошибка сброса порогового счётчика")
+		m.logger.WithError(err).WithField("userID", userID).Error(i18n.T("log.threshold_reset_failed"))
 	}
 
 	st.violations.Add(1)
@@ -449,7 +449,7 @@ func (m *Monitor) handleHardViolation(ctx context.Context, user *api.CachedUser,
 	}).Warn(i18n.T("log.limit_exceeded"))
 
 	if err := m.cache.RecordViolation(ctx, userID, user.Username); err != nil {
-		m.logger.WithError(err).WithField("userID", userID).Warn("Ошибка записи статистики нарушения")
+		m.logger.WithError(err).WithField("userID", userID).Warn(i18n.T("log.stats_record_failed"))
 	}
 
 	m.sendWebhook(ctx, "violation_detected", user, uniqueIPs, limit, violationCount, subnetGroups, asnGroups)
@@ -467,7 +467,7 @@ func (m *Monitor) handleSoftWarning(ctx context.Context, user *api.CachedUser, u
 
 	active, err := m.cache.IsSoftCooldownActive(ctx, userID)
 	if err != nil {
-		m.logger.WithError(err).WithField("userID", userID).Error("Ошибка проверки soft cooldown")
+		m.logger.WithError(err).WithField("userID", userID).Error(i18n.T("log.soft_cooldown_check_failed"))
 		return
 	}
 	if active {
@@ -475,7 +475,7 @@ func (m *Monitor) handleSoftWarning(ctx context.Context, user *api.CachedUser, u
 	}
 
 	if err := m.cache.SetSoftCooldown(ctx, userID, time.Duration(cfg.Cooldown)*time.Second); err != nil {
-		m.logger.WithError(err).WithField("userID", userID).Error("Ошибка установки soft cooldown")
+		m.logger.WithError(err).WithField("userID", userID).Error(i18n.T("log.soft_cooldown_set_failed"))
 	}
 
 	st.soft.Add(1)
@@ -493,7 +493,7 @@ func (m *Monitor) handleSoftWarning(ctx context.Context, user *api.CachedUser, u
 
 	text := telegram.FormatSoftAlert(user, uniqueIPs, limit, banThreshold, m.location, subnetGroups, cfg.SubnetGrouping, asnGroups, cfg.ASNGrouping)
 	if err := m.bot.SendSoftAlert(ctx, text, user.UserID, cfg.IgnoreDuration); err != nil {
-		m.logger.WithError(err).WithField("userID", userID).Error("Ошибка отправки soft alert")
+		m.logger.WithError(err).WithField("userID", userID).Error(i18n.T("log.soft_alert_failed"))
 	}
 }
 
@@ -532,7 +532,7 @@ func (m *Monitor) getUser(ctx context.Context, userID int64) (*api.CachedUser, e
 
 	ttl := time.Duration(m.cfg.Load().UserCacheTTL) * time.Second
 	if err := m.cache.SetUser(ctx, userID, cu, ttl); err != nil {
-		m.logger.WithError(err).WithField("userID", userID).Warn("Ошибка кэширования пользователя")
+		m.logger.WithError(err).WithField("userID", userID).Warn(i18n.T("log.user_cache_failed"))
 	}
 
 	return cu, nil
@@ -563,14 +563,14 @@ func (m *Monitor) handleManualAction(ctx context.Context, user *api.CachedUser, 
 	cfg := m.cfg.Load()
 	text := telegram.FormatManualAlert(user, ips, limit, violationCount, m.location, subnetGroups, cfg.SubnetGrouping, asnGroups, cfg.ASNGrouping)
 	if err := m.bot.SendManualAlert(ctx, text, user.UserID, cfg.AutoDisableDuration, cfg.IgnoreDuration); err != nil {
-		m.logger.WithError(err).WithField("userID", user.UserID).Error("Ошибка отправки manual alert")
+		m.logger.WithError(err).WithField("userID", user.UserID).Error(i18n.T("log.manual_alert_failed"))
 	}
 }
 
 func (m *Monitor) handleAutoAction(ctx context.Context, user *api.CachedUser, ips []api.ActiveIP, limit int, violationCount int64, subnetGroups, asnGroups int) {
 	cfg := m.cfg.Load()
 	if err := m.api.DisableUser(ctx, user.UserID); err != nil {
-		m.logger.WithError(err).WithField("userID", user.UserID).Error("Ошибка отключения пользователя")
+		m.logger.WithError(err).WithField("userID", user.UserID).Error(i18n.T("log.user_disable_failed"))
 		return
 	}
 
@@ -580,16 +580,16 @@ func (m *Monitor) handleAutoAction(ctx context.Context, user *api.CachedUser, ip
 			m.logger.WithError(err).WithFields(logrus.Fields{
 				"userID":      user.UserID,
 				"durationMin": cfg.AutoDisableDuration,
-			}).Error("Пользователь отключён, но таймер восстановления не установлен — включите вручную")
+			}).Error(i18n.T("log.restore_timer_missing"))
 		}
 	} else if err := m.cache.RemoveRestoreTimer(ctx, user.UserID); err != nil {
 		m.logger.WithError(err).WithField("userID", user.UserID).
-			Error("Пользователь отключён навсегда, но старый таймер восстановления не снят — он может включить пользователя")
+			Error(i18n.T("log.restore_old_timer"))
 	}
 
 	text := telegram.FormatAutoAlert(user, ips, limit, cfg.AutoDisableDuration, violationCount, m.location, subnetGroups, cfg.SubnetGrouping, asnGroups, cfg.ASNGrouping)
 	if err := m.bot.SendAutoAlert(ctx, text, user.UserID); err != nil {
-		m.logger.WithError(err).WithField("userID", user.UserID).Error("Ошибка отправки auto alert")
+		m.logger.WithError(err).WithField("userID", user.UserID).Error(i18n.T("log.auto_alert_failed"))
 	}
 }
 
@@ -717,12 +717,12 @@ func (m *Monitor) nextDailyReport(now time.Time, hour, minute int) time.Time {
 func (m *Monitor) sendDailyReport(ctx context.Context) {
 	stats, err := m.cache.GetViolationStats(ctx, statsTopN)
 	if err != nil {
-		m.logger.WithError(err).Error("Ошибка получения статистики для ежедневного отчёта")
+		m.logger.WithError(err).Error(i18n.T("log.daily_stats_failed"))
 		return
 	}
 	text := telegram.FormatDailyReport(stats, m.location)
 	if err := m.bot.SendStats(ctx, text); err != nil {
-		m.logger.WithError(err).Error("Ошибка отправки ежедневного отчёта")
+		m.logger.WithError(err).Error(i18n.T("log.daily_report_failed"))
 	}
 }
 
@@ -737,7 +737,7 @@ func (m *Monitor) restoreLoop(ctx context.Context) {
 		case <-ticker.C:
 			expired, err := m.cache.GetExpiredRestoreTimers(ctx)
 			if err != nil {
-				m.logger.WithError(err).Error("Ошибка получения истёкших таймеров восстановления")
+				m.logger.WithError(err).Error(i18n.T("log.restore_expired_failed"))
 				continue
 			}
 
@@ -751,57 +751,57 @@ func (m *Monitor) restoreLoop(ctx context.Context) {
 func (m *Monitor) restoreUser(ctx context.Context, member string) {
 	userID, err := strconv.ParseInt(member, 10, 64)
 	if err != nil {
-		m.logger.WithField("member", member).Warn("Устаревшая запись в очереди восстановления пропущена, включите пользователя вручную")
+		m.logger.WithField("member", member).Warn(i18n.T("log.restore_legacy_skipped"))
 		return
 	}
 
 	if err := m.api.EnableUser(ctx, userID); err != nil {
 		if ctx.Err() != nil {
 			if reqErr := m.cache.SetRestoreTimer(context.WithoutCancel(ctx), userID, 0); reqErr != nil {
-				m.logger.WithError(reqErr).WithField("userID", userID).Error("Не удалось вернуть пользователя в очередь восстановления")
+				m.logger.WithError(reqErr).WithField("userID", userID).Error(i18n.T("log.restore_requeue_failed"))
 			}
 			return
 		}
 
 		attempts, attErr := m.cache.IncrRestoreAttempts(ctx, userID)
 		if attErr != nil {
-			m.logger.WithError(attErr).WithField("userID", userID).Warn("Ошибка счётчика попыток восстановления")
+			m.logger.WithError(attErr).WithField("userID", userID).Warn(i18n.T("log.restore_attempts_failed"))
 			attempts = 1
 		}
 
 		if attempts < maxRestoreAttempts {
 			if reqErr := m.cache.SetRestoreTimer(ctx, userID, restoreRetryDelay); reqErr != nil {
-				m.logger.WithError(reqErr).WithField("userID", userID).Error("Не удалось вернуть пользователя в очередь восстановления — включите вручную")
+				m.logger.WithError(reqErr).WithField("userID", userID).Error(i18n.T("log.restore_requeue_manual"))
 			}
 			m.logger.WithError(err).WithFields(logrus.Fields{
 				"userID":  userID,
 				"attempt": attempts,
 				"retryIn": restoreRetryDelay,
-			}).Warn("Ошибка включения пользователя по таймеру, повтор запланирован")
+			}).Warn(i18n.T("log.restore_retry"))
 			return
 		}
 
 		m.logger.WithError(err).WithFields(logrus.Fields{
 			"userID":   userID,
 			"attempts": attempts,
-		}).Error("Не удалось включить пользователя по таймеру, попытки исчерпаны — включите вручную")
+		}).Error(i18n.T("log.restore_exhausted"))
 
 		if sendErr := m.bot.SendMessage(ctx, fmt.Sprintf(i18n.T("restore.failed"), userID)); sendErr != nil {
-			m.logger.WithError(sendErr).Error("Ошибка отправки уведомления о неудачном восстановлении")
+			m.logger.WithError(sendErr).Error(i18n.T("log.restore_failure_notice_failed"))
 		}
 		if resetErr := m.cache.ResetRestoreAttempts(ctx, userID); resetErr != nil {
-			m.logger.WithError(resetErr).WithField("userID", userID).Debug("Ошибка сброса счётчика попыток восстановления")
+			m.logger.WithError(resetErr).WithField("userID", userID).Debug(i18n.T("log.restore_attempts_reset_failed"))
 		}
 		return
 	}
 
 	if err := m.cache.ResetRestoreAttempts(ctx, userID); err != nil {
-		m.logger.WithError(err).WithField("userID", userID).Debug("Ошибка сброса счётчика попыток восстановления")
+		m.logger.WithError(err).WithField("userID", userID).Debug(i18n.T("log.restore_attempts_reset_failed"))
 	}
 
-	m.logger.WithField("userID", userID).Info("Пользователь автоматически включён по таймеру")
+	m.logger.WithField("userID", userID).Info(i18n.T("log.user_restored"))
 
 	if err := m.bot.SendMessage(ctx, fmt.Sprintf(i18n.T("restore.message"), userID)); err != nil {
-		m.logger.WithError(err).Error("Ошибка отправки уведомления о восстановлении")
+		m.logger.WithError(err).Error(i18n.T("log.restore_notice_failed"))
 	}
 }

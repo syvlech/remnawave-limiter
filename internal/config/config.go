@@ -1,6 +1,7 @@
 package config
 
 import (
+	"github.com/remnawave/limiter/internal/i18n"
 	"errors"
 	"fmt"
 	"math"
@@ -78,7 +79,7 @@ func LoadConfigWithOverrides(envPath string, overrides map[string]string) (*Conf
 	}
 
 	if err := godotenv.Load(envPath); err != nil {
-		logrus.Debug("Файл .env не найден, используются переменные окружения")
+		logrus.Debug(i18n.T("log.env_missing"))
 	}
 
 	l := &loader{overrides: overrides}

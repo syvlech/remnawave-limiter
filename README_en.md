@@ -6,7 +6,7 @@ Monitors simultaneous user connections via the panel API: collects IPs from all 
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
-[Русская версия](README.md)
+[Русская версия](README.md)   [简体中文](README_zh.md)
 
 ## Features
 

@@ -17,7 +17,7 @@
 - **Webhook** (JSON POST) о нарушениях с HMAC-подписью
 - **Статистика и отчёты** — команда `/stats` (за 24ч/неделю + топ-5 нарушителей) и ежедневный отчёт в чат
 - **Рантайм-настройки** через `/settings` — изменение параметров на лету без перезапуска (хранятся в Redis)
-- **Whitelist** пользователей и IP/CIDR, кулдаун, кэш, выбор часового пояса, ru/en
+- **Whitelist** пользователей и IP/CIDR, кулдаун, кэш, выбор часового пояса, ru/en/zh
 - **Liveness `/healthz`** (опционально, по `HEALTH_ADDR`) для healthcheck в Docker/оркестраторе
 - **Логи под `docker compose logs -f`** — сводка по каждому циклу проверки, уровень меняется на лету, `LOG_FORMAT=json` для Loki/ELK
 
@@ -101,6 +101,7 @@ REMNAWAVE_API_TOKEN=your-api-token-here
 TELEGRAM_BOT_TOKEN=123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11X
 TELEGRAM_CHAT_ID=-1001234567890
 TELEGRAM_ADMIN_IDS=123456789
+LANGUAGE=ru
 ```
 
 Запуск, логи и обновление:
@@ -152,7 +153,7 @@ docker compose logs -f limiter                # проверка
 | `MAXMIND_UPDATE_INTERVAL` | `168h` | Интервал автообновления базы (мин. `1h`). Только при заданном `MAXMIND_LICENSE_KEY` |
 | `REDIS_URL` | `redis://redis:6379` | Адрес Redis |
 | `TIMEZONE` | `UTC` | Часовой пояс для timestamps в алертах (напр. `Europe/Moscow`) |
-| `LANGUAGE` | `ru` | Язык интерфейса: `ru` или `en` |
+| `LANGUAGE` | `ru` | Язык интерфейса: `ru`, `en` или `zh` |
 | `DAILY_REPORT` | `false` | Ежедневный отчёт о нарушениях в чат (топ нарушителей + счётчики). Переключается на лету через `/settings` |
 | `DAILY_REPORT_TIME` | `09:00` | Локальное время отправки отчёта (`HH:MM`, в `TIMEZONE`). Меняется только перезапуском |
 | `HEALTH_ADDR` | — | Адрес HTTP liveness-эндпоинта `/healthz` (напр. `:8080`). Пусто = выключен |
@@ -319,7 +320,7 @@ Cooldown ставится до инкремента, поэтому счётчи
 | `violation.device_group_count` | Итоговое число «устройств» в выбранном режиме — именно оно сравнивается с лимитом |
 | `violation.subnet_count` / `asn_group_count` | Число подсетей / ASN-групп. Присутствуют, только если режим включён |
 | `violation.ips[].asn` / `asn_org` | Номер и название провайдера. Присутствуют, только если база MaxMind загружена и ASN определился |
-| `action.auto_disable_duration_min` | Длительность блокировки (0 = перманентная) |
+| `action.auto_disable_duration_min` | Длительность блокировки в минутах (0 = перманентная) |
 | `timestamp` | Время обнаружения (ISO 8601) |
 
 ## FAQ

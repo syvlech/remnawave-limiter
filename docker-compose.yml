@@ -1,6 +1,6 @@
 services:
   limiter:
-    image: ghcr.io/avsba001/remnawave-limiter:latest
+    image: ghcr.io/syvlech/remnawave-limiter:latest
     container_name: remnawave-limiter
     restart: unless-stopped
     env_file:
@@ -24,7 +24,7 @@ services:
         max-file: "3"
 
   redis:
-    image: valkey/valkey:9-alpine
+    image: valkey/valkey:8.1-alpine
     container_name: remnawave-limiter-redis
     restart: unless-stopped
     command: ["valkey-server", "--appendonly", "yes"]

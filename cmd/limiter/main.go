@@ -39,14 +39,14 @@ func groupingMode(cfg *config.Config) string {
 }
 
 func run() int {
-	i18n.SetLanguage(os.Getenv("LANGUAGE"))
 	logger := newLogger()
 
-	logger.Infof(i18n.T("log.application_version"), version.Version)
-
 	cfg, err := config.LoadConfig("")
+	// LoadConfig loads .env without overriding environment variables. Select the
+	// language before the first startup log, including configuration failures.
+	i18n.SetLanguage(os.Getenv("LANGUAGE"))
+	logger.Infof(i18n.T("log.application_version"), version.Version)
 	if err != nil {
-		i18n.SetLanguage(os.Getenv("LANGUAGE"))
 		logger.Errorf(i18n.T("log.config_failed"), err)
 		return 1
 	}

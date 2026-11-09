@@ -1,9 +1,9 @@
 package main
 
 import (
-	"github.com/remnawave/limiter/internal/i18n"
 	"context"
 	"fmt"
+	"github.com/remnawave/limiter/internal/i18n"
 	"time"
 
 	"github.com/sirupsen/logrus"

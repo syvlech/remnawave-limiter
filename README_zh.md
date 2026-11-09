@@ -6,7 +6,7 @@
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
-[英文版](README_en.md)
+[Русская версия](README.md) · [English version](README_en.md)
 
 ## 功能
 
@@ -17,7 +17,7 @@
 - 违规时发送带 HMAC 签名的 **Webhook**（JSON POST）
 - **统计与报告**——`/stats` 命令（24 小时/一周统计 + 违规最多的前 5 名用户），以及发送到聊天的每日报告
 - 通过 `/settings` 修改**运行时设置**——无需重启即可即时更改参数（保存在 Redis 中）
-- 用户和 IP/CIDR **白名单**、冷却时间、缓存、时区选择、俄语/英语
+- 用户和 IP/CIDR **白名单**、冷却时间、缓存、时区选择、俄语/英语/简体中文
 - **存活检查 `/healthz`**（可选，通过 `HEALTH_ADDR` 配置），用于 Docker/编排器健康检查
 - **适合通过 `docker compose logs -f` 查看日志**——每轮检查输出一条摘要，可在运行时修改日志级别，支持通过 `LOG_FORMAT=json` 接入 Loki/ELK
 
@@ -101,6 +101,7 @@ REMNAWAVE_API_TOKEN=your-api-token-here
 TELEGRAM_BOT_TOKEN=123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11X
 TELEGRAM_CHAT_ID=-1001234567890
 TELEGRAM_ADMIN_IDS=123456789
+LANGUAGE=zh
 ```
 
 启动、查看日志与更新：
@@ -152,7 +153,7 @@ docker compose logs -f limiter                # 检查
 | `MAXMIND_UPDATE_INTERVAL` | `168h` | 数据库自动更新间隔（最小 `1h`）。仅在设置了 `MAXMIND_LICENSE_KEY` 时生效 |
 | `REDIS_URL` | `redis://redis:6379` | Redis 地址 |
 | `TIMEZONE` | `UTC` | 告警时间戳使用的时区（例如 `Europe/Moscow`） |
-| `LANGUAGE` | `ru` | 界面语言：`ru` 或 `en` |
+| `LANGUAGE` | `ru` | Telegram 界面和程序日志消息的语言：`ru`（俄语）、`en`（英语）或 `zh`（简体中文）。修改后需要重建容器 |
 | `DAILY_REPORT` | `false` | 向聊天发送每日违规报告（违规排行 + 计数）。可通过 `/settings` 在运行时切换 |
 | `DAILY_REPORT_TIME` | `09:00` | 发送报告的本地时间（`HH:MM`，使用 `TIMEZONE`）。修改后需要重启 |
 | `HEALTH_ADDR` | — | HTTP 存活检查端点 `/healthz` 的监听地址（例如 `:8080`）。留空 = 禁用 |
@@ -160,6 +161,18 @@ docker compose logs -f limiter                # 检查
 | `LOG_FORMAT` | `text` | `text` 便于人工阅读，`json` 用于日志采集器（Loki、ELK）。修改后需要重启 |
 
 **通知中的 ASN。** 如果 MaxMind 数据库可用，告警和 Webhook 中每个 IP 旁会显示网络服务商（`• 91.107.96.11 - Hetzner Online GmbH (Chicago-1)`），标题中则显示不同 ASN 的数量（`检测到：4 IP（3 ASN）`）。这些展示信息不影响限制逻辑——决策仅依据 IP/子网/ASN 数量。
+
+### 界面与日志语言
+
+在 `.env` 中设置 `LANGUAGE`，选择 Telegram 界面和程序日志消息的语言：`ru`、`en` 或 `zh`。此参数为可选项，默认值为 `ru`。上方安装示例选择了简体中文。修改后执行以下命令应用设置：
+
+```bash
+docker compose up -d --force-recreate limiter
+```
+
+仅执行 `docker compose restart` 不会重新加载 `.env` 中的环境变量。语言不能通过 `/settings` 修改。
+
+日志级别（`INFO`、`WARN`、`ERROR`）、结构化字段名（如 `nodes`、`users`、`violations`）及 `error` 字段中的原始错误详情保留原文。第三方库和独立 Redis/Valkey 容器的日志也可能包含原始文本，不受程序的 `LANGUAGE` 设置控制。
 
 ## 限额逻辑
 
@@ -319,7 +332,7 @@ docker compose logs -f limiter                # 检查
 | `violation.device_group_count` | 所选模式下最终的“设备”数量——用于与限额比较的就是此值 |
 | `violation.subnet_count` / `asn_group_count` | 子网 / ASN 分组数量。仅在启用对应模式时出现 |
 | `violation.ips[].asn` / `asn_org` | 网络服务商编号和名称。仅在 MaxMind 数据库已加载且成功解析 ASN 时出现 |
-| `action.auto_disable_duration_min` | 封禁时长（0 = 永久） |
+| `action.auto_disable_duration_min` | 封禁时长，单位为分钟（0 = 永久） |
 | `timestamp` | 检测时间（ISO 8601） |
 
 ## 常见问题

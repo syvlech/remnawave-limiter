@@ -1,9 +1,9 @@
 package config
 
 import (
-	"github.com/remnawave/limiter/internal/i18n"
 	"errors"
 	"fmt"
+	"github.com/remnawave/limiter/internal/i18n"
 	"math"
 	"net"
 	"net/url"

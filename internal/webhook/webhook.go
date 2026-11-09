@@ -1,13 +1,13 @@
 package webhook
 
 import (
-	"github.com/remnawave/limiter/internal/i18n"
 	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/remnawave/limiter/internal/i18n"
 	"io"
 	"net"
 	"net/http"

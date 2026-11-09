@@ -1,8 +1,8 @@
 package geoip
 
 import (
-	"github.com/remnawave/limiter/internal/i18n"
 	"context"
+	"github.com/remnawave/limiter/internal/i18n"
 	"time"
 
 	"github.com/sirupsen/logrus"

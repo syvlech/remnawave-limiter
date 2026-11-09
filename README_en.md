@@ -153,7 +153,7 @@ All settings via `.env` or environment variables.
 | `MAXMIND_UPDATE_INTERVAL` | `168h` | Auto-refresh interval (min `1h`). Only when `MAXMIND_LICENSE_KEY` is set |
 | `REDIS_URL` | `redis://redis:6379` | Redis address |
 | `TIMEZONE` | `UTC` | Timezone for alert timestamps (e.g. `Europe/Moscow`) |
-| `LANGUAGE` | `ru` | Language of the Telegram interface and application log messages: `ru` (Russian), `en` (English) or `zh` (Simplified Chinese). Recreate the container after changing it |
+| `LANGUAGE` | `ru` | Interface language: `ru`, `en` or `zh` |
 | `DAILY_REPORT` | `false` | Daily violation report to the chat (top violators + counts). Toggleable at runtime via `/settings` |
 | `DAILY_REPORT_TIME` | `09:00` | Local time to send the report (`HH:MM`, in `TIMEZONE`). Restart required to change |
 | `HEALTH_ADDR` | — | Address of the HTTP liveness endpoint `/healthz` (e.g. `:8080`). Empty = disabled |
@@ -161,18 +161,6 @@ All settings via `.env` or environment variables.
 | `LOG_FORMAT` | `text` | `text` for humans, `json` for log shippers (Loki, ELK). Restart required to change |
 
 **ASN in alerts.** When the MaxMind database is available, each IP in alerts and webhooks is annotated with the provider (`• 91.107.96.11 - Hetzner Online GmbH (Chicago-1)`), and the header shows the unique ASN count (`Detected: 4 IP (3 ASN)`). It never affects the limiting logic — decisions use IP/subnet/ASN counts only.
-
-### Interface and log language
-
-Set `LANGUAGE` in `.env` to select the language of the Telegram interface and application log messages: `ru`, `en` or `zh`. It is optional and defaults to `ru`. The installation example above selects English. After changing it, apply the settings:
-
-```bash
-docker compose up -d --force-recreate limiter
-```
-
-A plain `docker compose restart` does not reload environment variables from `.env`. The language cannot be changed via `/settings`.
-
-Log levels (`INFO`, `WARN`, `ERROR`), structured field names (such as `nodes`, `users`, `violations`) and original error details in the `error` field remain untranslated. Logs from third-party libraries and the separate Redis/Valkey container may also contain their original text and are not controlled by the application's `LANGUAGE` setting.
 
 ## Limit logic
 

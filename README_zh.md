@@ -153,7 +153,7 @@ docker compose logs -f limiter                # 检查
 | `MAXMIND_UPDATE_INTERVAL` | `168h` | 数据库自动更新间隔（最小 `1h`）。仅在设置了 `MAXMIND_LICENSE_KEY` 时生效 |
 | `REDIS_URL` | `redis://redis:6379` | Redis 地址 |
 | `TIMEZONE` | `UTC` | 告警时间戳使用的时区（例如 `Europe/Moscow`） |
-| `LANGUAGE` | `ru` | Telegram 界面和程序日志消息的语言：`ru`（俄语）、`en`（英语）或 `zh`（简体中文）。修改后需要重建容器 |
+| `LANGUAGE` | `ru` | 界面语言：`ru`、`en` 或 `zh` |
 | `DAILY_REPORT` | `false` | 向聊天发送每日违规报告（违规排行 + 计数）。可通过 `/settings` 在运行时切换 |
 | `DAILY_REPORT_TIME` | `09:00` | 发送报告的本地时间（`HH:MM`，使用 `TIMEZONE`）。修改后需要重启 |
 | `HEALTH_ADDR` | — | HTTP 存活检查端点 `/healthz` 的监听地址（例如 `:8080`）。留空 = 禁用 |
@@ -161,18 +161,6 @@ docker compose logs -f limiter                # 检查
 | `LOG_FORMAT` | `text` | `text` 便于人工阅读，`json` 用于日志采集器（Loki、ELK）。修改后需要重启 |
 
 **通知中的 ASN。** 如果 MaxMind 数据库可用，告警和 Webhook 中每个 IP 旁会显示网络服务商（`• 91.107.96.11 - Hetzner Online GmbH (Chicago-1)`），标题中则显示不同 ASN 的数量（`检测到：4 IP（3 ASN）`）。这些展示信息不影响限制逻辑——决策仅依据 IP/子网/ASN 数量。
-
-### 界面与日志语言
-
-在 `.env` 中设置 `LANGUAGE`，选择 Telegram 界面和程序日志消息的语言：`ru`、`en` 或 `zh`。此参数为可选项，默认值为 `ru`。上方安装示例选择了简体中文。修改后执行以下命令应用设置：
-
-```bash
-docker compose up -d --force-recreate limiter
-```
-
-仅执行 `docker compose restart` 不会重新加载 `.env` 中的环境变量。语言不能通过 `/settings` 修改。
-
-日志级别（`INFO`、`WARN`、`ERROR`）、结构化字段名（如 `nodes`、`users`、`violations`）及 `error` 字段中的原始错误详情保留原文。第三方库和独立 Redis/Valkey 容器的日志也可能包含原始文本，不受程序的 `LANGUAGE` 设置控制。
 
 ## 限额逻辑
 

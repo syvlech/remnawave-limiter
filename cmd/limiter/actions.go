@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/remnawave/limiter/internal/i18n"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -45,7 +46,7 @@ func newActionHandler(panel userActions, store actionStore, cfg *config.Provider
 				return err
 			}
 			if err := store.SetRestoreTimer(ctx, a.UserID, time.Duration(minutes)*time.Minute); err != nil {
-				logger.WithError(err).WithField("userID", a.UserID).Error("Ошибка установки таймера восстановления (manual disable_temp)")
+				logger.WithError(err).WithField("userID", a.UserID).Error(i18n.T("log.restore_timer_failed"))
 				return err
 			}
 			return nil

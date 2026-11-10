@@ -2,6 +2,7 @@ package geoip
 
 import (
 	"context"
+	"github.com/remnawave/limiter/internal/i18n"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -39,12 +40,12 @@ func (u *Updater) Run(ctx context.Context) {
 
 func (u *Updater) tick(ctx context.Context) {
 	if err := u.Downloader.Download(ctx, u.DstPath); err != nil {
-		u.Logger.WithError(err).Warn("Не удалось скачать обновление базы MaxMind — продолжаем работать на текущей базе")
+		u.Logger.WithError(err).Warn(i18n.T("log.maxmind_download_failed"))
 		return
 	}
 	if err := u.Reloader.Reload(u.DstPath); err != nil {
-		u.Logger.WithError(err).Warn("Не удалось перезагрузить базу MaxMind после скачивания")
+		u.Logger.WithError(err).Warn(i18n.T("log.maxmind_reload_failed"))
 		return
 	}
-	u.Logger.Info("База MaxMind успешно обновлена")
+	u.Logger.Info(i18n.T("log.maxmind_updated"))
 }

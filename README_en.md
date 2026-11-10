@@ -6,7 +6,7 @@ Monitors simultaneous user connections via the panel API: collects IPs from all 
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
-[Русская версия](README.md)
+[Русская версия](README.md)·[简体中文](README_zh.md)
 
 ## Features
 
@@ -17,7 +17,7 @@ Monitors simultaneous user connections via the panel API: collects IPs from all 
 - **Webhook** (JSON POST) on violations with HMAC signature
 - **Statistics & reports** — `/stats` command (24h/week + top-5 violators) and a daily report to the chat
 - **Runtime settings** via `/settings` — change parameters on the fly without restart (stored in Redis)
-- **Whitelist** of users and IP/CIDR, cooldown, cache, timezone selection, ru/en
+- **Whitelist** of users and IP/CIDR, cooldown, cache, timezone selection, ru/en/zh
 - **Liveness `/healthz`** (optional, via `HEALTH_ADDR`) for Docker/orchestrator healthchecks
 - **Logs built for `docker compose logs -f`** — a summary line per check cycle, log level changeable at runtime, `LOG_FORMAT=json` for Loki/ELK
 
@@ -139,7 +139,7 @@ All settings via `.env` or environment variables.
 | `WEBHOOK_URL` | — | URL for webhooks on violations (POST JSON). Empty = disabled |
 | `WEBHOOK_SECRET` | — | Webhook secret for the HMAC-SHA256 signatures `X-Signature` (body) and `X-Signature-V2` (`<X-Timestamp>.<body>`). See [Webhook](#webhook) (optional) |
 | `WEBHOOK_SECRET_HEADER` | `true` | Whether to send the raw secret in the `X-Webhook-Secret` header. Kept for compatibility; turn it off if the receiver verifies the signature |
-| `WHITELIST_USER_IDS` | — | UUIDs to exclude from checks (comma-separated) |
+| `WHITELIST_USER_IDS` | — | Numeric user IDs to exclude from checks (comma-separated). UUIDs used before version 4.0 do not work here |
 | `IGNORED_NODE_UUIDS` | — | Node UUIDs skipped during IP collection (not in reports or decisions). For technical/test nodes |
 | `IP_WHITELIST` | — | IPs and/or CIDR subnets (comma-separated) excluded from counting. Drops node/bridge/relay IPs. IPv4/IPv6. Example: `203.0.113.5,10.0.0.0/8,2001:db8::/32` |
 | `IGNORE_DURATION` | `0` | TTL of the "Ignore" button action (min). `0` = permanent. `> 0` = temporary whitelist with TTL |
@@ -153,7 +153,7 @@ All settings via `.env` or environment variables.
 | `MAXMIND_UPDATE_INTERVAL` | `168h` | Auto-refresh interval (min `1h`). Only when `MAXMIND_LICENSE_KEY` is set |
 | `REDIS_URL` | `redis://redis:6379` | Redis address |
 | `TIMEZONE` | `UTC` | Timezone for alert timestamps (e.g. `Europe/Moscow`) |
-| `LANGUAGE` | `ru` | Interface language: `ru` or `en` |
+| `LANGUAGE` | `ru` | Interface language: `ru`, `en` or `zh` |
 | `DAILY_REPORT` | `false` | Daily violation report to the chat (top violators + counts). Toggleable at runtime via `/settings` |
 | `DAILY_REPORT_TIME` | `09:00` | Local time to send the report (`HH:MM`, in `TIMEZONE`). Restart required to change |
 | `HEALTH_ADDR` | — | Address of the HTTP liveness endpoint `/healthz` (e.g. `:8080`). Empty = disabled |

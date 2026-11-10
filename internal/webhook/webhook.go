@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/remnawave/limiter/internal/i18n"
 	"io"
 	"net"
 	"net/http"
@@ -72,7 +73,7 @@ func (c *Client) sign(parts ...[]byte) string {
 func (c *Client) Send(ctx context.Context, payload *Payload) {
 	data, err := json.Marshal(payload)
 	if err != nil {
-		c.logger.WithError(err).Error("Ошибка сериализации webhook payload")
+		c.logger.WithError(err).Error(i18n.T("log.webhook_encode_failed"))
 		return
 	}
 
@@ -98,17 +99,17 @@ func (c *Client) Send(ctx context.Context, payload *Payload) {
 			return
 		}
 		if !retry || ctx.Err() != nil {
-			c.logger.WithError(err).WithField("event", payload.Event).Error("Webhook не доставлен")
+			c.logger.WithError(err).WithField("event", payload.Event).Error(i18n.T("log.webhook_delivery_failed"))
 			return
 		}
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"attempt": attempt,
 			"of":      maxAttempts,
 			"event":   payload.Event,
-		}).Warn("Ошибка отправки webhook, повтор")
+		}).Warn(i18n.T("log.webhook_retry"))
 	}
 
-	c.logger.WithField("event", payload.Event).Error("Webhook не доставлен: попытки исчерпаны")
+	c.logger.WithField("event", payload.Event).Error(i18n.T("log.webhook_exhausted"))
 }
 
 type signatures struct {

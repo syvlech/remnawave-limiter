@@ -41,11 +41,13 @@ func groupingMode(cfg *config.Config) string {
 func run() int {
 	logger := newLogger()
 
-	logger.Infof("Remnawave Limiter v%s", version.Version)
-
 	cfg, err := config.LoadConfig("")
+	// LoadConfig loads .env without overriding environment variables. Select the
+	// language before the first startup log, including configuration failures.
+	i18n.SetLanguage(os.Getenv("LANGUAGE"))
+	logger.Infof(i18n.T("log.application_version"), version.Version)
 	if err != nil {
-		logger.Errorf("Ошибка конфигурации: %v", err)
+		logger.Errorf(i18n.T("log.config_failed"), err)
 		return 1
 	}
 
@@ -61,11 +63,11 @@ func run() int {
 	switch {
 	case cfg.MaxMindLicenseKey != "":
 		if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
-			logger.Errorf("Не удалось создать директорию для базы ASN %s: %v", filepath.Dir(dbPath), err)
+			logger.Errorf(i18n.T("log.asn_mkdir_failed"), filepath.Dir(dbPath), err)
 			return 1
 		}
 		if os.IsNotExist(statErr) {
-			logger.Infof("Файл базы ASN %s не найден, скачиваю через MaxMind...", dbPath)
+			logger.Infof(i18n.T("log.asn_downloading"), dbPath)
 			dl := &geoip.Downloader{
 				LicenseKey: cfg.MaxMindLicenseKey,
 				Validate:   geoip.DefaultValidate,
@@ -74,39 +76,39 @@ func run() int {
 			err := dl.Download(bootstrapCtx, dbPath)
 			cancelBootstrap()
 			if err != nil {
-				logger.Errorf("Ошибка загрузки базы ASN: %v", err)
+				logger.Errorf(i18n.T("log.asn_download_failed"), err)
 				return 1
 			}
-			logger.Info("База ASN успешно загружена")
+			logger.Info(i18n.T("log.asn_downloaded"))
 		}
 		db, err := geoip.NewDBResolver(dbPath)
 		if err != nil {
-			logger.Errorf("Ошибка открытия базы ASN: %v", err)
+			logger.Errorf(i18n.T("log.asn_open_failed"), err)
 			return 1
 		}
 		defer db.Close()
 		asnDB = db
 		resolver = db
 		maxmindLoaded = true
-		logger.Infof("ASN enrichment включён, база: %s", dbPath)
+		logger.Infof(i18n.T("log.asn_enabled"), dbPath)
 	case statErr == nil:
 		db, err := geoip.NewDBResolver(dbPath)
 		if err != nil {
-			logger.Warnf("Не удалось открыть базу ASN %s: %v. ASN enrichment отключён", dbPath, err)
+			logger.Warnf(i18n.T("log.asn_open_disabled"), dbPath, err)
 		} else {
 			defer db.Close()
 			asnDB = db
 			resolver = db
 			maxmindLoaded = true
-			logger.Infof("ASN enrichment включён (без auto-update, MAXMIND_LICENSE_KEY не задан), база: %s", dbPath)
+			logger.Infof(i18n.T("log.asn_enabled_no_update"), dbPath)
 		}
 	default:
-		logger.Info("ASN enrichment отключён: MAXMIND_LICENSE_KEY не задан и файл базы не найден")
+		logger.Info(i18n.T("log.asn_disabled"))
 	}
 
 	redisCache, err := cache.New(cfg.RedisURL)
 	if err != nil {
-		logger.Errorf("Ошибка Redis: %v", err)
+		logger.Errorf(i18n.T("log.redis_failed"), err)
 		return 1
 	}
 	defer redisCache.Close()
@@ -115,33 +117,33 @@ func run() int {
 	defer cancel()
 
 	if err := redisCache.Ping(ctx); err != nil {
-		logger.Errorf("Redis недоступен: %v", err)
+		logger.Errorf(i18n.T("log.redis_unavailable"), err)
 		return 1
 	}
-	logger.Info("Redis подключён")
+	logger.Info(i18n.T("log.redis_connected"))
 
 	appliedOverrides := map[string]string{}
 	if overrides, err := redisCache.GetConfigOverrides(ctx); err != nil {
-		logger.WithError(err).Warn("Не удалось загрузить сохранённые настройки из Redis, использую .env")
+		logger.WithError(err).Warn(i18n.T("log.settings_load_failed"))
 	} else if len(overrides) > 0 {
 		merged, applied, rejected, err := config.MergeSavedOverrides("", overrides)
 		if err != nil {
-			logger.WithError(err).Error("Не удалось применить сохранённые настройки, использую .env")
+			logger.WithError(err).Error(i18n.T("log.settings_apply_failed"))
 		} else {
 			for key, reason := range rejected {
 				logger.WithError(reason).WithFields(logrus.Fields{
 					"key":   key,
 					"value": overrides[key],
-				}).Warn("Сохранённая настройка невалидна и удалена — задайте её заново через /settings")
+				}).Warn(i18n.T("log.settings_invalid_removed"))
 				if err := redisCache.DeleteConfigOverride(ctx, key); err != nil {
-					logger.WithError(err).WithField("key", key).Warn("Не удалось удалить невалидную настройку из Redis")
+					logger.WithError(err).WithField("key", key).Warn(i18n.T("log.settings_delete_failed"))
 				}
 			}
 			cfg = merged
 			appliedOverrides = applied
 			applyLogSettings(logger, cfg)
 			if len(applied) > 0 {
-				logger.Infof("Применены сохранённые настройки из бота: %d параметр(ов)", len(applied))
+				logger.Infof(i18n.T("log.settings_applied"), len(applied))
 			}
 		}
 	}
@@ -158,10 +160,10 @@ func run() int {
 	if len(cfg.IgnoredNodeUUIDs) > 0 {
 		startupFields["ignoredNodes"] = len(cfg.IgnoredNodeUUIDs)
 	}
-	logger.WithFields(startupFields).Info("Конфигурация")
+	logger.WithFields(startupFields).Info(i18n.T("log.configuration"))
 
 	if err := redisCache.InitWhitelist(ctx, cfg.WhitelistUserIDs); err != nil {
-		logger.WithError(err).Error("Не удалось записать WHITELIST_USER_IDS в Redis — эти пользователи не будут игнорироваться")
+		logger.WithError(err).Error(i18n.T("log.whitelist_init_failed"))
 	}
 
 	apiClient := api.NewClient(cfg.RemnawaveAPIURL, cfg.RemnawaveAPIToken)
@@ -170,32 +172,32 @@ func run() int {
 	if cfg.RemnawaveCookies != "" {
 		cookies := api.ParseCookies(cfg.RemnawaveCookies)
 		apiClient.SetCookies(cookies)
-		logger.Infof("Cookie авторизация включена (%d)", len(cookies))
+		logger.Infof(i18n.T("log.cookies_enabled"), len(cookies))
 	}
 
 	if cfg.RemnawaveHeaders != "" {
 		headers := api.ParseHeaders(cfg.RemnawaveHeaders)
 		apiClient.SetHeaders(headers)
-		logger.Infof("Кастомные заголовки включены (%d)", len(headers))
+		logger.Infof(i18n.T("log.headers_enabled"), len(headers))
 	}
 
 	bot, err := telegram.NewBot(cfg.TelegramBotToken, cfg.TelegramChatID, cfg.TelegramThreadID, cfg.TelegramAdminIDs, cfg.TelegramProxy, logger)
 	if err != nil {
-		logger.Errorf("Ошибка Telegram: %v", err)
+		logger.Errorf(i18n.T("log.telegram_failed"), err)
 		return 1
 	}
-	logger.Info("Telegram бот подключён")
+	logger.Info(i18n.T("log.telegram_connected"))
 
 	var webhookClient *webhook.Client
 	if cfg.WebhookURL != "" {
 		webhookClient = webhook.NewClient(cfg.WebhookURL, cfg.WebhookSecret, logger)
 		webhookClient.SetRawSecretHeader(cfg.WebhookSecretHeader)
-		logger.Info("Webhook включён")
+		logger.Info(i18n.T("log.webhook_enabled"))
 	}
 
 	mon, err := monitor.New(cfgProvider, apiClient, redisCache, bot, webhookClient, resolver, logger)
 	if err != nil {
-		logger.Errorf("Ошибка монитора: %v", err)
+		logger.Errorf(i18n.T("log.monitor_failed"), err)
 		return 1
 	}
 
@@ -206,13 +208,13 @@ func run() int {
 	bot.SetActionHandler(newActionHandler(apiClient, redisCache, cfgProvider, logger))
 
 	if cfg.ASNGrouping && cfg.SubnetGrouping {
-		logger.Warn("Включены оба режима ASN_GROUPING и SUBNET_GROUPING — приоритет у ASN, подсети будут игнорироваться")
+		logger.Warn(i18n.T("log.grouping_priority"))
 	}
 	if cfg.ASNGrouping && !maxmindLoaded {
-		logger.Warn("ASN_GROUPING включён, но MaxMind ASN база не загружена — все IP без ASN будут считаться отдельными группами")
+		logger.Warn(i18n.T("log.asn_missing"))
 	}
 	if cfg.ActiveIPWindow < 2*cfg.CheckInterval {
-		logger.Warnf("ACTIVE_IP_WINDOW (%dс) меньше двух интервалов проверки (%dс) — часть подключений может не попасть в подсчёт",
+		logger.Warnf(i18n.T("log.active_window_short"),
 			cfg.ActiveIPWindow, 2*cfg.CheckInterval)
 	}
 
@@ -243,7 +245,7 @@ func run() int {
 	)
 	go func() {
 		if err := bot.SendStartupMessage(sigCtx, startupMsg); err != nil {
-			logger.WithError(err).Warn("Не удалось отправить стартовое сообщение в Telegram")
+			logger.WithError(err).Warn(i18n.T("log.startup_message_failed"))
 		}
 	}()
 
@@ -259,12 +261,12 @@ func run() int {
 			Logger:   logger,
 		}
 		go updater.Run(sigCtx)
-		logger.Infof("Авто-обновление базы ASN включено, интервал: %v", cfg.MaxMindUpdateInterval)
+		logger.Infof(i18n.T("log.asn_update_enabled"), cfg.MaxMindUpdateInterval)
 	}
 
 	go bot.StartPolling(sigCtx)
 	mon.Run(sigCtx)
 
-	logger.Info("Remnawave Limiter остановлен")
+	logger.Info(i18n.T("log.application_stopped"))
 	return 0
 }

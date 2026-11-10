@@ -420,7 +420,7 @@ func (b *Bot) handleSettingsCommand(ctx context.Context, msg *models.Message) {
 	}
 	b.clearPending(msg.From.ID)
 	if _, err := b.sendRich(ctx, msg.Chat.ID, b.threadFor(msg.Chat.ID), b.menuScreen(notice{})); err != nil {
-		b.logger.WithError(err).Error("Telegram бот: ошибка отправки меню настроек")
+		b.logger.WithError(err).Error(i18n.T("log.telegram_settings_failed"))
 	}
 }
 
@@ -604,7 +604,7 @@ func (b *Bot) deleteMessage(ctx context.Context, chatID int64, messageID int) {
 		ChatID:    chatID,
 		MessageID: messageID,
 	}); err != nil {
-		b.logger.WithError(err).Debug("Telegram бот: не удалось удалить сообщение с введённым значением")
+		b.logger.WithError(err).Debug(i18n.T("log.telegram_input_delete_failed"))
 	}
 }
 

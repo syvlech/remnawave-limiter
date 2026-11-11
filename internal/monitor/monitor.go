@@ -30,19 +30,76 @@ const (
 
 	restoreRetryDelay = 60 * time.Second
 
+	restoreQueueTimeout = 5 * time.Second
+
 	maxRestoreAttempts = 3
+
+	restoreScanInterval = 30 * time.Second
+
+	webhookSendTimeout = webhook.MaxSendDuration + 4*time.Second
 
 	webhookGracePeriod = 15 * time.Second
 
 	maxTolerance = 1 << 30
 )
 
+type panelAPI interface {
+	GetActiveNodes(ctx context.Context) ([]api.Node, error)
+	FetchUsersIPs(ctx context.Context, nodeUUID string) ([]api.UserIPEntry, error)
+	GetUserByID(ctx context.Context, userID int64) (*api.UserData, error)
+	DisableUser(ctx context.Context, userID int64) error
+	EnableUser(ctx context.Context, userID int64) error
+}
+
+type store interface {
+	IsWhitelisted(ctx context.Context, userID int64) (bool, error)
+	GetUser(ctx context.Context, userID int64) (*api.CachedUser, error)
+	SetUser(ctx context.Context, userID int64, user *api.CachedUser, ttl time.Duration) error
+	IsCooldownActive(ctx context.Context, userID int64) (bool, error)
+	SetCooldown(ctx context.Context, userID int64, ttl time.Duration) error
+	IsSoftCooldownActive(ctx context.Context, userID int64) (bool, error)
+	SetSoftCooldown(ctx context.Context, userID int64, ttl time.Duration) error
+	IncrViolationCount(ctx context.Context, userID int64) (int64, error)
+	IncrThresholdCount(ctx context.Context, userID int64, window time.Duration) (int64, error)
+	ResetThresholdCount(ctx context.Context, userID int64) error
+	RecordViolation(ctx context.Context, userID int64, username string) error
+	GetViolationStats(ctx context.Context, topN int) (*cache.ViolationStats, error)
+	SetRestoreTimer(ctx context.Context, userID int64, duration time.Duration) error
+	RemoveRestoreTimer(ctx context.Context, userID int64) error
+	ClaimExpiredRestoreTimers(ctx context.Context) ([]string, cache.RestoreLease, error)
+	RestoreLeaseHeld(ctx context.Context, member string, lease cache.RestoreLease) (bool, error)
+	CompleteRestore(ctx context.Context, member string, lease cache.RestoreLease) error
+	RescheduleRestore(ctx context.Context, member string, lease cache.RestoreLease, delay time.Duration) error
+	IncrRestoreAttempts(ctx context.Context, userID int64) (int64, error)
+	ResetRestoreAttempts(ctx context.Context, userID int64) error
+}
+
+type notifier interface {
+	SendManualAlert(ctx context.Context, text string, userID int64, disableDuration int, ignoreDuration int) error
+	SendAutoAlert(ctx context.Context, text string, userID int64) error
+	SendSoftAlert(ctx context.Context, text string, userID int64, ignoreDuration int) error
+	SendMessage(ctx context.Context, text string) error
+	SendDailyReport(ctx context.Context, text string) error
+}
+
+type webhookSender interface {
+	Send(ctx context.Context, payload *webhook.Payload)
+}
+
+type dependencies struct {
+	api      panelAPI
+	evidence evidenceAPI
+	cache    store
+	bot      notifier
+	webhook  webhookSender
+}
+
 type Monitor struct {
 	cfg          *config.Provider
-	api          *api.Client
-	cache        *cache.Cache
-	bot          *telegram.Bot
-	webhook      *webhook.Client
+	api          panelAPI
+	cache        store
+	bot          notifier
+	webhook      webhookSender
 	logger       *logrus.Logger
 	location     *time.Location
 	resolver     geoip.Resolver
@@ -50,15 +107,42 @@ type Monitor struct {
 	ipWhitelist  *ipFilter
 
 	lastCheckUnix atomic.Int64
+
+	evidence       evidenceAPI
+	evidenceWarned sync.Map
+
+	trafficReport TrafficReport
+
+	webhookCtx    context.Context
+	webhookCancel context.CancelFunc
 	webhookWG     sync.WaitGroup
+	restoreWG     sync.WaitGroup
 }
 
 func New(provider *config.Provider, apiClient *api.Client, c *cache.Cache, bot *telegram.Bot, wh *webhook.Client, resolver geoip.Resolver, logger *logrus.Logger) (*Monitor, error) {
+	var deps dependencies
+	if apiClient != nil {
+		deps.api = apiClient
+		deps.evidence = apiClient
+	}
+	if c != nil {
+		deps.cache = c
+	}
+	if bot != nil {
+		deps.bot = bot
+	}
+	if wh != nil {
+		deps.webhook = wh
+	}
+	return newMonitor(provider, deps, resolver, logger)
+}
+
+func newMonitor(provider *config.Provider, deps dependencies, resolver geoip.Resolver, logger *logrus.Logger) (*Monitor, error) {
 	cfg := provider.Load()
 
 	loc, err := time.LoadLocation(cfg.Timezone)
 	if err != nil {
-		return nil, fmt.Errorf("неверная таймзона %q: %w", cfg.Timezone, err)
+		return nil, fmt.Errorf(i18n.T("error.monitor.timezone"), cfg.Timezone, err)
 	}
 
 	ignored := make(map[string]struct{}, len(cfg.IgnoredNodeUUIDs))
@@ -71,17 +155,26 @@ func New(provider *config.Provider, apiClient *api.Client, c *cache.Cache, bot *
 		return nil, fmt.Errorf("IP_WHITELIST: %w", err)
 	}
 
+	if resolver == nil {
+		resolver = geoip.NopResolver{}
+	}
+
+	webhookCtx, webhookCancel := context.WithCancel(context.Background())
+
 	return &Monitor{
-		cfg:          provider,
-		api:          apiClient,
-		cache:        c,
-		bot:          bot,
-		webhook:      wh,
-		logger:       logger,
-		location:     loc,
-		resolver:     resolver,
-		ignoredNodes: ignored,
-		ipWhitelist:  ipWhitelist,
+		cfg:           provider,
+		api:           deps.api,
+		cache:         deps.cache,
+		bot:           deps.bot,
+		webhook:       deps.webhook,
+		logger:        logger,
+		location:      loc,
+		resolver:      resolver,
+		ignoredNodes:  ignored,
+		ipWhitelist:   ipWhitelist,
+		evidence:      deps.evidence,
+		webhookCtx:    webhookCtx,
+		webhookCancel: webhookCancel,
 	}, nil
 }
 
@@ -90,7 +183,25 @@ func (m *Monitor) Run(ctx context.Context) {
 	ticker := time.NewTicker(time.Duration(interval) * time.Second)
 	defer ticker.Stop()
 
-	go m.restoreLoop(ctx)
+	configChanged := make(chan struct{}, 1)
+	m.cfg.Watch(func(*config.Config) {
+		select {
+		case configChanged <- struct{}{}:
+		default:
+		}
+	})
+	applyInterval := func() {
+		if cur := m.cfg.Load().CheckInterval; cur != interval {
+			interval = cur
+			ticker.Reset(time.Duration(interval) * time.Second)
+		}
+	}
+
+	m.restoreWG.Add(1)
+	go func() {
+		defer m.restoreWG.Done()
+		m.restoreLoop(ctx)
+	}()
 	go m.dailyReportLoop(ctx)
 
 	m.logger.Info(i18n.T("log.monitoring_started"))
@@ -101,16 +212,33 @@ func (m *Monitor) Run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			m.logger.Info(i18n.T("log.monitoring_stopped"))
-			m.webhookWG.Wait()
+			m.restoreWG.Wait()
+			m.waitWebhooks(webhookGracePeriod)
 			return
+		case <-configChanged:
+			applyInterval()
 		case <-ticker.C:
 			m.check(ctx)
-
-			if cur := m.cfg.Load().CheckInterval; cur != interval {
-				interval = cur
-				ticker.Reset(time.Duration(interval) * time.Second)
-			}
+			applyInterval()
 		}
+	}
+}
+
+func (m *Monitor) waitWebhooks(grace time.Duration) {
+	done := make(chan struct{})
+	go func() {
+		m.webhookWG.Wait()
+		close(done)
+	}()
+
+	timer := time.NewTimer(grace)
+	defer timer.Stop()
+
+	select {
+	case <-done:
+	case <-timer.C:
+		m.webhookCancel()
+		<-done
 	}
 }
 
@@ -123,6 +251,11 @@ func (m *Monitor) check(ctx context.Context) {
 			return
 		}
 		m.logger.WithError(err).Error(i18n.T("log.nodes_fetch_failed"))
+		return
+	}
+
+	if len(allNodes) == 0 {
+		m.logger.Warn(i18n.T("log.nodes_none"))
 		return
 	}
 
@@ -141,12 +274,15 @@ func (m *Monitor) check(ctx context.Context) {
 	}
 
 	if len(nodes) == 0 {
-		m.logger.Debug(i18n.T("log.nodes_none"))
+		m.logger.Debug(i18n.T("log.nodes_all_ignored"))
 		m.lastCheckUnix.Store(time.Now().Unix())
 		return
 	}
 
 	results, failed := m.fetchNodes(ctx, nodes)
+	if ctx.Err() != nil {
+		return
+	}
 
 	if failed == len(nodes) {
 		m.logger.WithField("nodes", failed).Error(i18n.T("log.nodes_all_failed"))
@@ -158,8 +294,6 @@ func (m *Monitor) check(ctx context.Context) {
 			"total":  len(nodes),
 		}).Warn(i18n.T("log.nodes_partial"))
 	}
-
-	m.lastCheckUnix.Store(time.Now().Unix())
 
 	cfg := m.cfg.Load()
 	cutoff := time.Now().Add(-time.Duration(cfg.ActiveIPWindow) * time.Second)
@@ -190,13 +324,26 @@ func (m *Monitor) check(ctx context.Context) {
 
 	var st checkStats
 	m.checkUsers(ctx, aggregated, &st)
+	if ctx.Err() != nil {
+		return
+	}
 
-	m.logger.WithFields(logrus.Fields{
+	userErrors := st.errors.Load()
+	summary := logrus.Fields{
 		"nodes":      fmt.Sprintf("%d/%d", len(nodes)-failed, len(nodes)),
 		"users":      len(aggregated),
 		"violations": st.violations.Load(),
 		"took":       time.Since(started).Truncate(time.Millisecond).String(),
-	}).Info(i18n.T("log.check"))
+	}
+	if userErrors > 0 {
+		summary["errors"] = userErrors
+	}
+	if len(aggregated) > 0 && userErrors >= int64(len(aggregated)) {
+		m.logger.WithFields(summary).Error(i18n.T("log.users_all_failed"))
+	} else {
+		m.lastCheckUnix.Store(time.Now().Unix())
+		m.logger.WithFields(summary).Info(i18n.T("log.check"))
+	}
 
 	m.logger.WithFields(logrus.Fields{
 		"staleIPs":    staleIPs,
@@ -208,6 +355,7 @@ func (m *Monitor) check(ctx context.Context) {
 type checkStats struct {
 	violations atomic.Int64
 	soft       atomic.Int64
+	errors     atomic.Int64
 }
 
 type nodeResult struct {
@@ -312,19 +460,21 @@ func (m *Monitor) checkUser(ctx context.Context, userID int64, activeIPs []api.A
 	whitelisted, err := m.cache.IsWhitelisted(ctx, userID)
 	if err != nil {
 		m.logger.WithError(err).WithField("userID", userID).Error(i18n.T("log.whitelist_check_failed"))
+		st.errors.Add(1)
 		return
 	}
 	if whitelisted {
 		return
 	}
 
-	user, err := m.getUser(ctx, userID)
+	user, err := m.getUser(ctx, cfg, userID)
 	if err != nil {
 		m.logger.WithError(err).WithField("userID", userID).Error(i18n.T("log.user_fetch_failed"))
+		st.errors.Add(1)
 		return
 	}
 
-	limit := m.resolveLimit(cfg, user.HWIDDeviceLimit)
+	limit := resolveLimit(cfg, user.HWIDDeviceLimit)
 	if limit == 0 {
 		return
 	}
@@ -346,12 +496,10 @@ func (m *Monitor) checkUser(ctx context.Context, userID int64, activeIPs []api.A
 		uniqueIPs = append(uniqueIPs, ip)
 	}
 
-	if m.resolver != nil {
-		for i := range uniqueIPs {
-			if info, ok := m.resolver.Lookup(uniqueIPs[i].IP); ok {
-				uniqueIPs[i].ASN = info.Number
-				uniqueIPs[i].ASNOrg = info.Org
-			}
+	for i := range uniqueIPs {
+		if info, ok := m.resolver.Lookup(uniqueIPs[i].IP); ok {
+			uniqueIPs[i].ASN = info.Number
+			uniqueIPs[i].ASNOrg = info.Org
 		}
 	}
 
@@ -383,17 +531,16 @@ func (m *Monitor) checkUser(ctx context.Context, userID int64, activeIPs []api.A
 	banThreshold := limit + effectiveTolerance(cfg, limit)
 
 	if deviceCount > banThreshold {
-		m.handleHardViolation(ctx, user, uniqueIPs, limit, deviceCount, subnetGroups, asnGroups, st)
+		m.handleHardViolation(ctx, cfg, user, uniqueIPs, limit, deviceCount, subnetGroups, asnGroups, st)
 		return
 	}
 
 	if cfg.ActionMode == "auto" && cfg.AutoNotifySoft && deviceCount > limit {
-		m.handleSoftWarning(ctx, user, uniqueIPs, limit, deviceCount, banThreshold, subnetGroups, asnGroups, st)
+		m.handleSoftWarning(ctx, cfg, user, uniqueIPs, limit, deviceCount, banThreshold, subnetGroups, asnGroups, st)
 	}
 }
 
-func (m *Monitor) handleHardViolation(ctx context.Context, user *api.CachedUser, uniqueIPs []api.ActiveIP, limit, deviceCount, subnetGroups, asnGroups int, st *checkStats) {
-	cfg := m.cfg.Load()
+func (m *Monitor) handleHardViolation(ctx context.Context, cfg *config.Config, user *api.CachedUser, uniqueIPs []api.ActiveIP, limit, deviceCount, subnetGroups, asnGroups int, st *checkStats) {
 	userID := user.UserID
 
 	active, err := m.cache.IsCooldownActive(ctx, userID)
@@ -407,6 +554,7 @@ func (m *Monitor) handleHardViolation(ctx context.Context, user *api.CachedUser,
 
 	if err := m.cache.SetCooldown(ctx, userID, time.Duration(cfg.Cooldown)*time.Second); err != nil {
 		m.logger.WithError(err).WithField("userID", userID).Error(i18n.T("log.cooldown_set_failed"))
+		return
 	}
 
 	violationCount, err := m.cache.IncrViolationCount(ctx, userID)
@@ -452,17 +600,16 @@ func (m *Monitor) handleHardViolation(ctx context.Context, user *api.CachedUser,
 		m.logger.WithError(err).WithField("userID", userID).Warn(i18n.T("log.stats_record_failed"))
 	}
 
-	m.sendWebhook(ctx, "violation_detected", user, uniqueIPs, limit, violationCount, subnetGroups, asnGroups)
+	m.sendWebhook(cfg, "violation_detected", user, uniqueIPs, limit, violationCount, subnetGroups, asnGroups)
 
 	if cfg.ActionMode == "auto" {
-		m.handleAutoAction(ctx, user, uniqueIPs, limit, violationCount, subnetGroups, asnGroups)
+		m.handleAutoAction(ctx, cfg, user, uniqueIPs, limit, violationCount, subnetGroups, asnGroups)
 	} else {
-		m.handleManualAction(ctx, user, uniqueIPs, limit, violationCount, subnetGroups, asnGroups)
+		m.handleManualAction(ctx, cfg, user, uniqueIPs, limit, violationCount, subnetGroups, asnGroups)
 	}
 }
 
-func (m *Monitor) handleSoftWarning(ctx context.Context, user *api.CachedUser, uniqueIPs []api.ActiveIP, limit, deviceCount, banThreshold, subnetGroups, asnGroups int, st *checkStats) {
-	cfg := m.cfg.Load()
+func (m *Monitor) handleSoftWarning(ctx context.Context, cfg *config.Config, user *api.CachedUser, uniqueIPs []api.ActiveIP, limit, deviceCount, banThreshold, subnetGroups, asnGroups int, st *checkStats) {
 	userID := user.UserID
 
 	active, err := m.cache.IsSoftCooldownActive(ctx, userID)
@@ -489,15 +636,28 @@ func (m *Monitor) handleSoftWarning(ctx context.Context, user *api.CachedUser, u
 		"banThreshold": banThreshold,
 	}).Warn(i18n.T("log.soft_warning"))
 
-	m.sendWebhook(ctx, "soft_violation_detected", user, uniqueIPs, limit, 0, subnetGroups, asnGroups)
+	m.sendWebhook(cfg, "soft_violation_detected", user, uniqueIPs, limit, 0, subnetGroups, asnGroups)
 
-	text := telegram.FormatSoftAlert(user, uniqueIPs, limit, banThreshold, m.location, subnetGroups, cfg.SubnetGrouping, asnGroups, cfg.ASNGrouping)
+	ev := m.collectEvidence(ctx, user.UserID, uniqueIPs)
+	text := telegram.FormatSoftAlert(user, uniqueIPs, limit, banThreshold, m.location, subnetGroups, cfg.SubnetGrouping, asnGroups, cfg.ASNGrouping, ev)
 	if err := m.bot.SendSoftAlert(ctx, text, user.UserID, cfg.IgnoreDuration); err != nil {
 		m.logger.WithError(err).WithField("userID", userID).Error(i18n.T("log.soft_alert_failed"))
 	}
 }
 
-func (m *Monitor) getUser(ctx context.Context, userID int64) (*api.CachedUser, error) {
+type TrafficReport interface {
+	HeavyReport(ctx context.Context) (*telegram.HeavyTrafficReport, error)
+}
+
+func (m *Monitor) SetTrafficReport(r TrafficReport) {
+	m.trafficReport = r
+}
+
+func (m *Monitor) LookupUser(ctx context.Context, userID int64) (*api.CachedUser, error) {
+	return m.getUser(ctx, m.cfg.Load(), userID)
+}
+
+func (m *Monitor) getUser(ctx context.Context, cfg *config.Config, userID int64) (*api.CachedUser, error) {
 	cached, err := m.cache.GetUser(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("cache get user: %w", err)
@@ -514,7 +674,6 @@ func (m *Monitor) getUser(ctx context.Context, userID int64) (*api.CachedUser, e
 	cu := &api.CachedUser{
 		UserID:   userID,
 		Username: userData.Username,
-		Status:   userData.Status,
 	}
 
 	if userData.Email != nil {
@@ -530,7 +689,7 @@ func (m *Monitor) getUser(ctx context.Context, userID int64) (*api.CachedUser, e
 	}
 	cu.SubscriptionURL = userData.SubscriptionURL
 
-	ttl := time.Duration(m.cfg.Load().UserCacheTTL) * time.Second
+	ttl := time.Duration(cfg.UserCacheTTL) * time.Second
 	if err := m.cache.SetUser(ctx, userID, cu, ttl); err != nil {
 		m.logger.WithError(err).WithField("userID", userID).Warn(i18n.T("log.user_cache_failed"))
 	}
@@ -549,7 +708,7 @@ func effectiveTolerance(cfg *config.Config, limit int) int {
 	return int(t)
 }
 
-func (m *Monitor) resolveLimit(cfg *config.Config, hwidDeviceLimit int) int {
+func resolveLimit(cfg *config.Config, hwidDeviceLimit int) int {
 	if hwidDeviceLimit == 0 {
 		return 0
 	}
@@ -559,46 +718,70 @@ func (m *Monitor) resolveLimit(cfg *config.Config, hwidDeviceLimit int) int {
 	return hwidDeviceLimit
 }
 
-func (m *Monitor) handleManualAction(ctx context.Context, user *api.CachedUser, ips []api.ActiveIP, limit int, violationCount int64, subnetGroups, asnGroups int) {
-	cfg := m.cfg.Load()
-	text := telegram.FormatManualAlert(user, ips, limit, violationCount, m.location, subnetGroups, cfg.SubnetGrouping, asnGroups, cfg.ASNGrouping)
+func (m *Monitor) handleManualAction(ctx context.Context, cfg *config.Config, user *api.CachedUser, ips []api.ActiveIP, limit int, violationCount int64, subnetGroups, asnGroups int) {
+	ev := m.collectEvidence(ctx, user.UserID, ips)
+	text := telegram.FormatManualAlert(user, ips, limit, violationCount, m.location, subnetGroups, cfg.SubnetGrouping, asnGroups, cfg.ASNGrouping, ev)
 	if err := m.bot.SendManualAlert(ctx, text, user.UserID, cfg.AutoDisableDuration, cfg.IgnoreDuration); err != nil {
 		m.logger.WithError(err).WithField("userID", user.UserID).Error(i18n.T("log.manual_alert_failed"))
 	}
 }
 
-func (m *Monitor) handleAutoAction(ctx context.Context, user *api.CachedUser, ips []api.ActiveIP, limit int, violationCount int64, subnetGroups, asnGroups int) {
-	cfg := m.cfg.Load()
-	if err := m.api.DisableUser(ctx, user.UserID); err != nil {
-		m.logger.WithError(err).WithField("userID", user.UserID).Error(i18n.T("log.user_disable_failed"))
+func (m *Monitor) handleAutoAction(ctx context.Context, cfg *config.Config, user *api.CachedUser, ips []api.ActiveIP, limit int, violationCount int64, subnetGroups, asnGroups int) {
+	err := m.api.DisableUser(ctx, user.UserID)
+	if api.IsAlreadyDisabled(err) {
+		m.logger.WithField("userID", user.UserID).Info(i18n.T("log.user_already_disabled"))
+		m.extendCooldown(ctx, cfg, user.UserID)
 		return
 	}
+	if err != nil {
+		m.logger.WithError(err).WithField("userID", user.UserID).Error(i18n.T("log.user_disable_failed"))
+		if ctx.Err() == nil {
+			if sendErr := m.bot.SendMessage(ctx, fmt.Sprintf(i18n.T("auto.disable_failed"), user.UserID)); sendErr != nil {
+				m.logger.WithError(sendErr).Error(i18n.T("log.auto_alert_failed"))
+			}
+		}
+		return
+	}
+	m.extendCooldown(ctx, cfg, user.UserID)
 
+	storeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), restoreQueueTimeout)
+	defer cancel()
+	disabledFor := cfg.AutoDisableDuration
 	if cfg.AutoDisableDuration > 0 {
 		duration := time.Duration(cfg.AutoDisableDuration) * time.Minute
-		if err := m.cache.SetRestoreTimer(ctx, user.UserID, duration); err != nil {
+		if err := m.cache.SetRestoreTimer(storeCtx, user.UserID, duration); err != nil {
 			m.logger.WithError(err).WithFields(logrus.Fields{
 				"userID":      user.UserID,
 				"durationMin": cfg.AutoDisableDuration,
 			}).Error(i18n.T("log.restore_timer_missing"))
+			disabledFor = 0
 		}
-	} else if err := m.cache.RemoveRestoreTimer(ctx, user.UserID); err != nil {
+	} else if err := m.cache.RemoveRestoreTimer(storeCtx, user.UserID); err != nil {
 		m.logger.WithError(err).WithField("userID", user.UserID).
 			Error(i18n.T("log.restore_old_timer"))
 	}
 
-	text := telegram.FormatAutoAlert(user, ips, limit, cfg.AutoDisableDuration, violationCount, m.location, subnetGroups, cfg.SubnetGrouping, asnGroups, cfg.ASNGrouping)
+	ev := m.collectEvidence(ctx, user.UserID, ips)
+	text := telegram.FormatAutoAlert(user, ips, limit, disabledFor, violationCount, m.location, subnetGroups, cfg.SubnetGrouping, asnGroups, cfg.ASNGrouping, ev)
 	if err := m.bot.SendAutoAlert(ctx, text, user.UserID); err != nil {
 		m.logger.WithError(err).WithField("userID", user.UserID).Error(i18n.T("log.auto_alert_failed"))
 	}
 }
 
-func (m *Monitor) sendWebhook(ctx context.Context, event string, user *api.CachedUser, ips []api.ActiveIP, limit int, violationCount int64, subnetGroups, asnGroups int) {
+func (m *Monitor) extendCooldown(ctx context.Context, cfg *config.Config, userID int64) {
+	need := time.Duration(cfg.ActiveIPWindow+cfg.CheckInterval) * time.Second
+	if need <= time.Duration(cfg.Cooldown)*time.Second {
+		return
+	}
+	if err := m.cache.SetCooldown(ctx, userID, need); err != nil {
+		m.logger.WithError(err).WithField("userID", userID).Error(i18n.T("log.cooldown_set_failed"))
+	}
+}
+
+func (m *Monitor) sendWebhook(cfg *config.Config, event string, user *api.CachedUser, ips []api.ActiveIP, limit int, violationCount int64, subnetGroups, asnGroups int) {
 	if m.webhook == nil {
 		return
 	}
-
-	cfg := m.cfg.Load()
 
 	ipPayloads := make([]webhook.IPPayload, len(ips))
 	for i, ip := range ips {
@@ -656,7 +839,7 @@ func (m *Monitor) sendWebhook(ctx context.Context, event string, user *api.Cache
 		Timestamp: time.Now(),
 	}
 
-	sendCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), webhookGracePeriod)
+	sendCtx, cancel := context.WithTimeout(m.webhookCtx, webhookSendTimeout)
 
 	m.webhookWG.Add(1)
 	go func() {
@@ -720,14 +903,23 @@ func (m *Monitor) sendDailyReport(ctx context.Context) {
 		m.logger.WithError(err).Error(i18n.T("log.daily_stats_failed"))
 		return
 	}
-	text := telegram.FormatDailyReport(stats, m.location)
-	if err := m.bot.SendStats(ctx, text); err != nil {
+	var heavy *telegram.HeavyTrafficReport
+	if m.trafficReport != nil {
+		h, err := m.trafficReport.HeavyReport(ctx)
+		if err != nil {
+			m.logger.WithError(err).Warn(i18n.T("log.daily_traffic_failed"))
+		} else {
+			heavy = h
+		}
+	}
+	text := telegram.FormatDailyReport(stats, m.location, heavy)
+	if err := m.bot.SendDailyReport(ctx, text); err != nil {
 		m.logger.WithError(err).Error(i18n.T("log.daily_report_failed"))
 	}
 }
 
 func (m *Monitor) restoreLoop(ctx context.Context) {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(restoreScanInterval)
 	defer ticker.Stop()
 
 	for {
@@ -735,31 +927,63 @@ func (m *Monitor) restoreLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			expired, err := m.cache.GetExpiredRestoreTimers(ctx)
-			if err != nil {
-				m.logger.WithError(err).Error(i18n.T("log.restore_expired_failed"))
-				continue
-			}
-
-			for _, member := range expired {
-				m.restoreUser(ctx, member)
-			}
+			m.restoreExpired(ctx)
 		}
 	}
 }
 
-func (m *Monitor) restoreUser(ctx context.Context, member string) {
-	userID, err := strconv.ParseInt(member, 10, 64)
+func (m *Monitor) restoreExpired(ctx context.Context) {
+	expired, lease, err := m.cache.ClaimExpiredRestoreTimers(ctx)
 	if err != nil {
-		m.logger.WithField("member", member).Warn(i18n.T("log.restore_legacy_skipped"))
+		m.logger.WithError(err).Error(i18n.T("log.restore_expired_failed"))
 		return
 	}
 
-	if err := m.api.EnableUser(ctx, userID); err != nil {
+	for _, member := range expired {
 		if ctx.Err() != nil {
-			if reqErr := m.cache.SetRestoreTimer(context.WithoutCancel(ctx), userID, 0); reqErr != nil {
-				m.logger.WithError(reqErr).WithField("userID", userID).Error(i18n.T("log.restore_requeue_failed"))
-			}
+			m.releaseRestore(ctx, member, lease)
+			continue
+		}
+		m.restoreUser(ctx, member, lease)
+	}
+}
+
+func (m *Monitor) releaseRestore(ctx context.Context, member string, lease cache.RestoreLease) {
+	releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), restoreQueueTimeout)
+	defer cancel()
+	if err := m.cache.RescheduleRestore(releaseCtx, member, lease, 0); err != nil {
+		m.logger.WithError(err).WithField("member", member).Error(i18n.T("log.restore_requeue_failed"))
+	}
+}
+
+func (m *Monitor) completeRestore(ctx context.Context, member string, lease cache.RestoreLease) {
+	doneCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), restoreQueueTimeout)
+	defer cancel()
+	if err := m.cache.CompleteRestore(doneCtx, member, lease); err != nil {
+		m.logger.WithError(err).WithField("member", member).Error(i18n.T("log.restore_complete_failed"))
+	}
+}
+
+func (m *Monitor) restoreUser(ctx context.Context, member string, lease cache.RestoreLease) {
+	userID, err := strconv.ParseInt(member, 10, 64)
+	if err != nil {
+		m.logger.WithField("member", member).Warn(i18n.T("log.restore_legacy_skipped"))
+		m.completeRestore(ctx, member, lease)
+		return
+	}
+
+	held, err := m.cache.RestoreLeaseHeld(ctx, member, lease)
+	if err != nil {
+		m.logger.WithError(err).WithField("userID", userID).Error(i18n.T("log.restore_expired_failed"))
+		return
+	}
+	if !held {
+		return
+	}
+
+	if err := m.api.EnableUser(ctx, userID); err != nil && !api.IsAlreadyEnabled(err) {
+		if ctx.Err() != nil {
+			m.releaseRestore(ctx, member, lease)
 			return
 		}
 
@@ -770,8 +994,8 @@ func (m *Monitor) restoreUser(ctx context.Context, member string) {
 		}
 
 		if attempts < maxRestoreAttempts {
-			if reqErr := m.cache.SetRestoreTimer(ctx, userID, restoreRetryDelay); reqErr != nil {
-				m.logger.WithError(reqErr).WithField("userID", userID).Error(i18n.T("log.restore_requeue_manual"))
+			if reqErr := m.cache.RescheduleRestore(ctx, member, lease, restoreRetryDelay); reqErr != nil {
+				m.logger.WithError(reqErr).WithField("userID", userID).Error(i18n.T("log.restore_requeue_failed"))
 			}
 			m.logger.WithError(err).WithFields(logrus.Fields{
 				"userID":  userID,
@@ -785,6 +1009,7 @@ func (m *Monitor) restoreUser(ctx context.Context, member string) {
 			"userID":   userID,
 			"attempts": attempts,
 		}).Error(i18n.T("log.restore_exhausted"))
+		m.completeRestore(ctx, member, lease)
 
 		if sendErr := m.bot.SendMessage(ctx, fmt.Sprintf(i18n.T("restore.failed"), userID)); sendErr != nil {
 			m.logger.WithError(sendErr).Error(i18n.T("log.restore_failure_notice_failed"))
@@ -795,6 +1020,7 @@ func (m *Monitor) restoreUser(ctx context.Context, member string) {
 		return
 	}
 
+	m.completeRestore(ctx, member, lease)
 	if err := m.cache.ResetRestoreAttempts(ctx, userID); err != nil {
 		m.logger.WithError(err).WithField("userID", userID).Debug(i18n.T("log.restore_attempts_reset_failed"))
 	}

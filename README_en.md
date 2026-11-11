@@ -6,7 +6,7 @@ Monitors simultaneous user connections via the panel API: collects IPs from all 
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
-[Русская версия](README.md)·[简体中文](README_zh.md)
+[Русская версия](README.md) · [简体中文](README_zh.md)
 
 ## Features
 
@@ -16,6 +16,8 @@ Monitors simultaneous user connections via the panel API: collects IPs from all 
 - **Grouping** of IPs by subnet (`/24`) or by ASN providers — against CGNAT and sharing
 - **Webhook** (JSON POST) on violations with HMAC signature
 - **Statistics & reports** — `/stats` command (24h/week + top-5 violators) and a daily report to the chat
+- **Update check** — once a day compares the running version with the latest GitHub release and announces a new one in the chat
+- **Traffic monitoring** — compares each user's daily traffic with their own usual volume: spikes and persistently high traffic, with no per-user requests
 - **Runtime settings** via `/settings` — change parameters on the fly without restart (stored in Redis)
 - **Whitelist** of users and IP/CIDR, cooldown, cache, timezone selection, ru/en/zh
 - **Liveness `/healthz`** (optional, via `HEALTH_ADDR`) for Docker/orchestrator healthchecks
@@ -43,7 +45,7 @@ A failing node does not abort the cycle: the check proceeds on the remaining one
 ## Requirements
 
 - Docker and Docker Compose
-- **Remnawave 3.0.0+** with an API token (scopes `connections:*`, `users:*` and `nodes:read`)
+- **Remnawave 3.0.0+** with an API token (scopes `connections:*`, `users:*` and `nodes:read`; for the HWID block in alerts also `hwid-user-devices:read`, for traffic monitoring `bandwidth-stats:node-usage`)
 - Telegram bot ([@BotFather](https://t.me/BotFather))
 
 <details>
@@ -59,7 +61,10 @@ If you want the token to hold only what limiter actually calls:
 | `users:by-id` | `GET /api/users/{id}` | device limit and user data |
 | `users:disable` | `POST /api/users/{id}/actions/disable` | disabling the subscription |
 | `users:enable` | `POST /api/users/{id}/actions/enable` | the "Enable" button and timed restore |
-| `connections:drop` | `POST /api/connections/drop` | only the "Drop connections" button in `manual` mode |
+| `connections:drop` | `POST /api/connections/drop` | only the "Drop connections" button: `manual` mode alerts, soft warnings (`AUTO_NOTIFY_SOFT`) and traffic alerts |
+| `users:subscription-request-history` | `GET /api/users/{id}/subscription-request-history` | the "Subscription requests" block in alerts; optional |
+| `hwid-user-devices:list-by-user` | `GET /api/hwid/devices/{userId}` | the "HWID devices" block in alerts; optional |
+| `bandwidth-stats:node-usage` | `POST /api/bandwidth-stats/nodes/usage` | traffic monitoring (`TRAFFIC_MONITOR`); optional |
 
 Read access is enough for nodes: `nodes:*` would also grant write access (restarting and disabling nodes, editing profiles and inbounds), which limiter does not need.
 
@@ -120,22 +125,22 @@ All settings via `.env` or environment variables.
 | `REMNAWAVE_API_URL` | **required** | Remnawave panel address |
 | `REMNAWAVE_API_TOKEN` | **required** | API token (generated in the panel) |
 | `REMNAWAVE_COOKIES` | — | Additional cookie auth. Format: `key=value` separated by `;` (e.g. `cf_clearance=abc; session=xyz`). For panels behind Cloudflare/WAF |
-| `REMNAWAVE_HEADERS` | — | Additional HTTP headers sent with every API request. Format: `Name: Value` separated by `;` (e.g. `X-Api-Key: secret123; X-Custom-Header: value`). For panels behind a proxy/Cloudflare/protection |
+| `REMNAWAVE_HEADERS` | — | Additional HTTP headers sent with every API request. Format: `Name: Value` separated by `;` (e.g. `X-Api-Key: secret123; X-Custom-Header: value`). A `;` inside parentheses does not split headers (a User-Agent can be written as is); elsewhere escape it as `\;`. For panels behind a proxy/Cloudflare/protection |
 | `TELEGRAM_BOT_TOKEN` | **required** | Bot token from @BotFather |
 | `TELEGRAM_CHAT_ID` | **required** | Chat/channel/group ID for alerts |
 | `TELEGRAM_ADMIN_IDS` | **required** | Admin IDs (comma-separated); only they can press buttons |
 | `TELEGRAM_THREAD_ID` | — | Thread/topic ID in a supergroup |
 | `TELEGRAM_PROXY` | — | Proxy for the Telegram API. Schemes: `http`, `https`, `socks5`, `socks5h`. Format: `scheme://[user:pass@]host:port` |
-| `CHECK_INTERVAL` | `30` | Check interval (sec) |
-| `ACTIVE_IP_WINDOW` | `300` | IP is active if `lastSeen` < this value (sec) |
+| `CHECK_INTERVAL` | `60` | Check interval (sec) |
+| `ACTIVE_IP_WINDOW` | `120` | IP is active if `lastSeen` < this value (sec) |
 | `TOLERANCE` | `0` | Fixed allowed excess over the limit. Limit 3 + tolerance 1 → reaction at 5+ |
 | `TOLERANCE_MULTIPLIER` | `0` | Proportional tolerance: `TOLERANCE + floor(limit × multiplier)`. 0 disables. Allowed `0..100` |
 | `COOLDOWN` | `300` | Cooldown between alerts per user (sec) |
 | `USER_CACHE_TTL` | `600` | User data cache TTL (sec) |
 | `DEFAULT_DEVICE_LIMIT` | `0` | Limit when `hwidDeviceLimit` is unset. 0 = no limit |
 | `ACTION_MODE` | `manual` | `manual` — alert with buttons; `auto` — auto-disable subscription |
-| `AUTO_DISABLE_DURATION` | `0` | Temporary disable duration (min). 0 = permanent. In `manual` adds a button, in `auto` sets auto-restore time |
-| `AUTO_NOTIFY_SOFT` | `false` | `auto` only. Excess **within tolerance** (`limit < devices <= limit+TOLERANCE`) triggers an informational alert with no ban. Ban only above `limit+TOLERANCE` |
+| `AUTO_DISABLE_DURATION` | `15` | Temporary disable duration (min). 0 = permanent. In `manual` adds a button, in `auto` sets auto-restore time |
+| `AUTO_NOTIFY_SOFT` | `false` | `auto` only. Excess **within tolerance** (`limit < devices <= limit+TOLERANCE`) triggers an informational alert with no ban. Ban only above `limit+TOLERANCE`. The tolerance here is the full one: `TOLERANCE + floor(limit × TOLERANCE_MULTIPLIER)` |
 | `WEBHOOK_URL` | — | URL for webhooks on violations (POST JSON). Empty = disabled |
 | `WEBHOOK_SECRET` | — | Webhook secret for the HMAC-SHA256 signatures `X-Signature` (body) and `X-Signature-V2` (`<X-Timestamp>.<body>`). See [Webhook](#webhook) (optional) |
 | `WEBHOOK_SECRET_HEADER` | `true` | Whether to send the raw secret in the `X-Webhook-Secret` header. Kept for compatibility; turn it off if the receiver verifies the signature |
@@ -143,24 +148,31 @@ All settings via `.env` or environment variables.
 | `IGNORED_NODE_UUIDS` | — | Node UUIDs skipped during IP collection (not in reports or decisions). For technical/test nodes |
 | `IP_WHITELIST` | — | IPs and/or CIDR subnets (comma-separated) excluded from counting. Drops node/bridge/relay IPs. IPv4/IPv6. Example: `203.0.113.5,10.0.0.0/8,2001:db8::/32` |
 | `IGNORE_DURATION` | `0` | TTL of the "Ignore" button action (min). `0` = permanent. `> 0` = temporary whitelist with TTL |
-| `VIOLATION_THRESHOLD` | `1` | Violations required before action. 1 = instant reaction |
+| `VIOLATION_THRESHOLD` | `3` | Violations required before action. 1 = instant reaction |
 | `VIOLATION_THRESHOLD_WINDOW` | `3600` | Violation counting window (sec). Must exceed `(VIOLATION_THRESHOLD − 1) × (COOLDOWN + CHECK_INTERVAL)`, otherwise the threshold is unreachable and the config is rejected |
 | `SUBNET_GROUPING` | `false` | Group IPv4 by `/SUBNET_PREFIX_V4` — counts subnets instead of IPs (reduces CGNAT false positives). IPv6 is per-IP |
 | `SUBNET_PREFIX_V4` | `24` | IPv4 prefix length (8..32). 24 is standard; 16 suits mobile-heavy audiences. When `SUBNET_GROUPING=true` |
-| `ASN_GROUPING` | `false` | Count unique ASN providers instead of IPs/subnets — strongest signal against sharing. IPs without ASN are a separate group. Takes priority over `SUBNET_GROUPING`. Requires the MaxMind ASN database |
+| `ASN_GROUPING` | `false` | Count unique ASN providers instead of IPs/subnets — strongest signal against sharing. Each IP without an ASN counts as its own group. Takes priority over `SUBNET_GROUPING`. Requires the MaxMind ASN database |
 | `ASN_DATABASE_PATH` | `./geoip/GeoLite2-ASN.mmdb` | Path to `GeoLite2-ASN.mmdb`. Directory is created automatically. Override only for non-standard layouts |
 | `MAXMIND_LICENSE_KEY` | — | MaxMind key. If set, the missing database is downloaded on startup + refreshed in the background. [Register](https://www.maxmind.com/en/geolite2/signup) |
 | `MAXMIND_UPDATE_INTERVAL` | `168h` | Auto-refresh interval (min `1h`). Only when `MAXMIND_LICENSE_KEY` is set |
 | `REDIS_URL` | `redis://redis:6379` | Redis address |
 | `TIMEZONE` | `UTC` | Timezone for alert timestamps (e.g. `Europe/Moscow`) |
 | `LANGUAGE` | `ru` | Interface language: `ru`, `en` or `zh` |
-| `DAILY_REPORT` | `false` | Daily violation report to the chat (top violators + counts). Toggleable at runtime via `/settings` |
-| `DAILY_REPORT_TIME` | `09:00` | Local time to send the report (`HH:MM`, in `TIMEZONE`). Restart required to change |
+| `DAILY_REPORT` | `true` | Daily violation report to the chat (top violators + counts). Toggleable at runtime via `/settings` |
+| `DAILY_REPORT_TIME` | `21:00` | Local time to send the report (`HH:MM`, in `TIMEZONE`). Restart required to change |
+| `UPDATE_CHECK` | `true` | Once a day, check GitHub for a new version and announce it in the chat, once per version. See [Update check](#update-check-update_checktrue). Toggleable at runtime via `/settings` |
+| `TRAFFIC_MONITOR` | `true` | Traffic monitoring: spikes against the user's usual volume and persistently high traffic. See [Traffic monitoring](#traffic-monitoring-traffic_monitortrue). Toggleable at runtime via `/settings` |
+| `TRAFFIC_SPIKE_FACTOR` | `10` | How many times a day's traffic must exceed the usual volume (median of the days with traffic over 14 days) to count as a spike. `1.5..100`. Editable in `/settings` |
+| `TRAFFIC_SPIKE_MIN_GB` | `150` | Minimum daily traffic for a spike, GB. Editable in `/settings` |
+| `TRAFFIC_HEAVY_GB` | `200` | Daily traffic from which a day counts as heavy, GB. `0` turns the rule off. Editable in `/settings` |
+| `TRAFFIC_HEAVY_DAYS` | `5` | How many heavy days out of the last 7 trigger the persistently high traffic alert (`1..7`). Editable in `/settings` |
+| `TRAFFIC_IGNORED_NODE_UUIDS` | — | Comma-separated node UUIDs whose traffic is not counted (on top of `IGNORED_NODE_UUIDS`), for example nodes where heavy traffic is normal |
 | `HEALTH_ADDR` | — | Address of the HTTP liveness endpoint `/healthz` (e.g. `:8080`). Empty = disabled |
 | `LOG_LEVEL` | `info` | Log verbosity: `trace`, `debug`, `info`, `warn`, `error`. At `info` — one summary line per check cycle plus every action taken; `debug` adds the per-IP breakdown and Telegram transport details. Changeable at runtime via `/settings` |
 | `LOG_FORMAT` | `text` | `text` for humans, `json` for log shippers (Loki, ELK). Restart required to change |
 
-**ASN in alerts.** When the MaxMind database is available, each IP in alerts and webhooks is annotated with the provider (`• 91.107.96.11 - Hetzner Online GmbH (Chicago-1)`), and the header shows the unique ASN count (`Detected: 4 IP (3 ASN)`). It never affects the limiting logic — decisions use IP/subnet/ASN counts only.
+**ASN in alerts.** When the MaxMind database is available, each IP in the alert's IP list shows its provider (the “Provider” column), webhooks carry the `asn` and `asn_org` fields, and the “📡 Detected” row shows the unique ASN count (`4 IP · 3 ASN`). It never affects the limiting logic — decisions use IP/subnet/ASN counts only.
 
 ## Limit logic
 
@@ -172,7 +184,7 @@ All settings via `.env` or environment variables.
 
 ## Violation threshold
 
-With `VIOLATION_THRESHOLD=1` (default) the limiter reacts to every excess. With a higher value, action runs only after N violations accumulate within `VIOLATION_THRESHOLD_WINDOW`: excess → cooldown check → counter increment (TTL = window) → on threshold, action + counter reset. If more than the window passes between violations, the counter resets.
+With `VIOLATION_THRESHOLD=1` the limiter reacts to every excess. With a higher value (the default is 3), action runs only after N violations accumulate within `VIOLATION_THRESHOLD_WINDOW`: excess → cooldown check → counter increment (TTL = window) → on threshold, action + counter reset. If more than the window passes between violations, the counter resets.
 
 The cooldown is set before the increment, so the counter grows at most once per `COOLDOWN`, and the next violation is noticed on the next check. The window must fit `N − 1` such steps: `VIOLATION_THRESHOLD_WINDOW > (VIOLATION_THRESHOLD − 1) × (COOLDOWN + CHECK_INTERVAL)`. A config that breaks this is rejected at startup and in `/settings` — otherwise the threshold would never be reached and the limiter would silently stop acting.
 
@@ -200,17 +212,58 @@ Available to admins from `TELEGRAM_ADMIN_IDS` only. Registered in the bot's comm
 
 ### Runtime settings (`/settings`)
 
-Source priority: **Redis override > `.env` / environment > defaults**. Changes apply on the fly (e.g. `CHECK_INTERVAL` resets the ticker). Structural and secret keys (API URL/token, all `TELEGRAM_*`, `REDIS_URL`, `TIMEZONE`, `LANGUAGE`, `WEBHOOK_*`, `IP_WHITELIST`, `IGNORED_NODE_UUIDS`, `MAXMIND_*`, `DAILY_REPORT_TIME`, `HEALTH_ADDR`, `LOG_FORMAT`) require an `.env` change + restart. "Reset to .env" (per key, or all with a confirmation) removes the override.
+Source priority: **Redis override > `.env` / environment > defaults**. Changes apply on the fly (e.g. `CHECK_INTERVAL` resets the ticker). Structural and secret keys (API URL/token, all `TELEGRAM_*`, `REDIS_URL`, `TIMEZONE`, `LANGUAGE`, `WEBHOOK_*`, `IP_WHITELIST`, `IGNORED_NODE_UUIDS`, `MAXMIND_*`, `DAILY_REPORT_TIME`, `HEALTH_ADDR`, `LOG_FORMAT`, `REMNAWAVE_COOKIES`, `REMNAWAVE_HEADERS`, `WHITELIST_USER_IDS`, `ASN_DATABASE_PATH`, `TRAFFIC_IGNORED_NODE_UUIDS`) require an `.env` change + restart. "Reset to .env" (per key, or all with a confirmation) removes the override.
 
 The menu lives in a single message that is redrawn in place:
 
-- **Main screen** — a table of every setting grouped by section (🎯 Detection, 🛡 Actions, ⏳ Thresholds and cooldowns, 🌐 Grouping, 🧰 Service); ♻️ marks values changed in the bot.
+- **Main screen** — a table of every setting grouped by section (🎯 Detection, 🛡 Actions, ⏳ Thresholds and cooldowns, 🌐 Grouping, 📈 Traffic, 🧰 Service); ♻️ marks values changed in the bot.
 - **Section** — values, a hint for each setting and buttons: flags toggle with one tap (enabled ones are green), the rest open the edit screen.
 - **Edit screen** — current value, its source (`.env` or the bot), the variable name, quick presets (minutes are shown in readable form, `0` = "forever") and typing your own value as a message. A validation error is shown on the same screen and you can retry right away.
 
 ### Daily report (`DAILY_REPORT=true`)
 
 Once a day at `DAILY_REPORT_TIME` (local time in `TIMEZONE`) the bot posts the same report as `/stats` (24h/week counts + top-5) to the chat. Only real post-threshold violations (`VIOLATION_THRESHOLD`) are counted; soft warnings are excluded from statistics. `DAILY_REPORT` is toggleable at runtime via `/settings`; `DAILY_REPORT_TIME` requires a restart.
+
+With traffic monitoring on (`TRAFFIC_MONITOR=true`), the report has a “📈 Persistently high traffic” section. It lists users who had at least `TRAFFIC_HEAVY_DAYS` days of `TRAFFIC_HEAVY_GB` or more in the last 7 closed days, sorted by weekly traffic, with the number of such days and the 7-day total. Up to 10 users are shown and whitelisted users are skipped. A separate alert for such a user comes no more than once every 7 days, but the report shows them every day.
+
+### Update check (`UPDATE_CHECK=true`)
+
+A minute after start and then once a day the limiter fetches the latest release of the GitHub repository (`api.github.com`, no token). If it is newer than the running version, the bot posts the current and new versions, the update command and a “📝 What's new” button that opens the release page. Each version is announced once: the last announced version is kept in Redis (`update:notified`), so restarts do not repeat the notice. Drafts and pre-releases are ignored. Network errors and GitHub rate limits are only logged (`warn`). The request goes out directly, or through `HTTPS_PROXY` when it is set. Turn it off with `UPDATE_CHECK=false` or in `/settings` → “🧰 Service”.
+
+### Traffic monitoring (`TRAFFIC_MONITOR=true`)
+
+The limiter compares each user's daily traffic with that user's own usual volume and reports two situations:
+
+- **Spike.** In a day the user used `TRAFFIC_SPIKE_FACTOR` times their usual volume and at least `TRAFFIC_SPIKE_MIN_GB`. The usual volume is the median traffic of those of the previous 14 days when the user actually used the subscription, so a single odd day barely moves it. A day without traffic is missing data, not zero traffic. So until there are 5 such days (a new subscription, a return after a break), the user gets no spike alerts. This surfaces a hijacked account or the start of sharing or reselling.
+- **Persistently high traffic.** At least `TRAFFIC_HEAVY_DAYS` of the last 7 days with `TRAFFIC_HEAVY_GB` or more, and the latest day is heavy too. This surfaces seedboxes and resellers: their usual volume is already high, so there is no spike.
+
+The alert goes to the same chat with the same buttons as the device-limit alert. It shows the day's traffic, the usual volume and how many times it was exceeded, the three busiest nodes, device-limit violations this week and a 14-day chart. Monitoring only notifies and never disables anyone itself. Whitelisted users are skipped. A repeat spike alert for the same user comes no sooner than 3 days later, a repeat persistently-high alert no sooner than 7 days. The daily report (`DAILY_REPORT=true`) shows such users every day in its “📈 Persistently high traffic” section.
+
+**Example.** `ivan`'s usual volume is 6 GB a day (14-day median). Every 30 minutes the limiter fetches today's traffic for all nodes in one request and adds it up per user:
+
+- at 09:00 `ivan` has 60 GB (DE-1 40 + NL-1 20): that is ×10, but less than 150 GB, so no alert;
+- at 11:30 `ivan` has 180 GB: more than max(10 × 6, 150) = 150 GB, and “📈 Unusual traffic” arrives with ×30.
+
+`petr` usually uses 15 GB and downloaded 130 GB today. That is ×8.7, below ×10, so no alert: for a heavy user it is a one-off large download. Over the last 7 days `seedbox` used 240, 190, 280, 260, 220, 300, 250 GB. Its usual volume is itself about 250 GB, so there is no spike. But 6 of the 7 days exceed 200 GB, and “📈 Persistently high traffic” arrives after the day rolls over.
+
+**Days and history.** The panel counts days in UTC. After the day rolls over, the limiter requests the finished day once in full, writes the totals to its own history in Redis (16 days, every user with at least 100 MB on a node) and checks them against both rules. On first start it loads the last 14 days from the panel right away (14 requests), so spikes are detected from the first poll. If the panel does not keep old history, spike detection starts after 5 days.
+
+**Nodes.** The request covers every panel node except `IGNORED_NODE_UUIDS` and `TRAFFIC_IGNORED_NODE_UUIDS` (for example, nodes where heavy traffic is normal). Disabled nodes are counted too, since they may have had traffic today. The number of nodes does not affect the cost: the panel stores rows only where the user actually was. If a user can reach 20 of 100 nodes, they have at most 20 rows a day.
+
+The panel applies the threshold to each node and user pair, not to the user's total across nodes. So during the day the limiter asks with a per-node threshold of one tenth of `TRAFFIC_SPIKE_MIN_GB` (15 GB for 150 GB), which still catches someone who spread their traffic evenly over 10 nodes. When a day is closed the threshold is 100 MB per node: someone who spread 200 GB over 16 nodes (12.5 GB on each) is invisible during the day but is found after the rollover. On a real panel a user goes through about 5 nodes a day on average.
+
+**Panel load.** About 49 statistics requests a day (48 during the day and one at night) whatever the number of subscriptions, plus a light node-list request before each poll. There are no per-user requests. Each request reads only one day of rows through the primary key of `nodes_user_usage_history`. Measured on a panel with 25 nodes and about 2,500 active users a day:
+
+- the daytime request takes 0.4 s and 34 KB;
+- the nightly one takes 1.4 s and 420 KB;
+- the first start with the 14-day backfill takes about 5 s;
+- the history in Redis takes about 3 MB.
+
+With 50,000 subscriptions (about 10 times as many active users) expect 1–4 s for the daytime request, 5–15 s and about 4 MB for the nightly one, and about 30 MB of history.
+
+**Why these defaults.** They are based on measurements on the same panel. Its median daily traffic is 3.5 GB, and 99% of users stay under 34 GB. With ×5 and 30 GB a spike would fire about 9 times a day, with ×10 and 100 GB about 1.3 times. Those are real anomalies: 185 GB against a usual 6 GB, 105 GB against 2.6 GB. The “100 GB on 5 of 7 days” rule fired on one user in a week, who used 1.1 TB a day. The number of alerts grows with the number of users, so the defaults leave a margin: 150 GB for a spike and 200 GB for persistently high traffic. On a small panel they can be lowered to 100 GB. The panel itself tracks traffic limits of plans (`BANDWIDTH_USAGE_NOTIFICATIONS_THRESHOLD`).
+
+It needs the `bandwidth-stats:node-usage` scope; without it the limiter logs one warning and skips the polls. If user traffic records are turned off in the panel (`SERVICE_DISABLE_USER_USAGE_RECORDS=true`), there is no data, and the limiter warns about it.
 
 ### Manual mode (`ACTION_MODE=manual`)
 
@@ -231,13 +284,24 @@ On excess the bot sends an alert with buttons:
   IP          Provider       Node
   10.0.1.10   Hetzner        node-1
   10.0.3.30   Cloudflare     node-2
+▸ 📥 Subscription requests (24 in 3 h)
+▸ 📱 HWID devices (2)
 
 [🔄 Drop connections]
 [🔒 Disable permanently] [🔒 Disable for 10 min]  ← the second one if AUTO_DISABLE_DURATION > 0
 [🔇 Ignore for 15 min]                            ← if IGNORE_DURATION > 0, otherwise "🔇 Ignore"
 ```
 
-After a button is pressed the alert keeps its content, the buttons disappear and a summary is added at the bottom: what was done, by whom and when. After a subscription is disabled an "🔓 Enable subscription" button remains, so the action can be undone.
+**Sharing evidence.** The alert's main table has two summary rows, and two collapsed blocks with the details follow the IP list:
+
+- “📥 Subscription requests” — the last 24 subscription requests from the panel, grouped by IP: provider, apps (Happ, v2rayNG, browser…) and how many times. 🟢 marks an IP that is connected right now. Summary row: `9 IP · 4 ASN · apps: 4`.
+- “📱 HWID devices” — the devices the panel registered for the user: model, OS, app and last activity. Summary row: `2 / 3` (devices / limit).
+
+One phone that switches between Wi-Fi and LTE requests the subscription with one app from two or three networks. A link handed to friends shows many networks and different apps. More IPs than the limit with HWID devices within the limit suggests exported keys. The data is requested only when an alert is sent (two parallel requests, at most 8 s) and needs the `users:subscription-request-history` and `hwid-user-devices:list-by-user` scopes. Without them, on an older panel, or with request history turned off (`SERVICE_DISABLE_SRH_RECORDS`), the alert arrives without these blocks and a warning is logged once. The HWID block is empty when the panel's HWID limit is off.
+
+After a button is pressed the alert keeps its content, the buttons disappear and a summary is added at the bottom: what was done, by whom and when. After a subscription is disabled an "🔓 Enable subscription" button remains, so the action can be undone. If the alert cannot be edited (deleted, too old, or the edit was rejected), the result is posted as a separate reply to the alert.
+
+The duration of "Disable for N min" and "Ignore for N min" is stored in the button itself when the alert is sent: changing `AUTO_DISABLE_DURATION`/`IGNORE_DURATION` via `/settings` does not change what already-sent buttons do. "Disable permanently" and "Enable subscription" cancel a scheduled auto-restore, so an old timer cannot re-enable the user.
 
 | Button | Action |
 |--------|--------|
@@ -245,8 +309,6 @@ After a button is pressed the alert keeps its content, the buttons disappear and
 | Disable permanently | Permanently deactivate the subscription |
 | Disable for N min | Temporary deactivation with auto-restore (when `AUTO_DISABLE_DURATION > 0`) |
 | Ignore | Add to whitelist: temporary if `IGNORE_DURATION > 0`, otherwise permanent |
-
-The duration of "Disable for N min" and "Ignore for N min" is stored in the button itself when the alert is sent: changing `AUTO_DISABLE_DURATION`/`IGNORE_DURATION` via `/settings` does not change what already-sent buttons do. "Disable forever" and "Enable subscription" cancel a scheduled auto-restore, so an old timer cannot re-enable the user. If the alert cannot be edited (deleted, too old, or the edit was rejected), the result is posted as a separate reply to the alert.
 
 ### Automatic mode (`ACTION_MODE=auto`)
 
@@ -327,7 +389,7 @@ Delivery does not block the monitoring loop. On a network error, 5xx or 429 it i
 
 **How to find my Telegram Chat ID?** Add [@userinfobot](https://t.me/userinfobot) and send `/start`. For a group/channel — [@getidsbot](https://t.me/getidsbot).
 
-**What if the panel API is unavailable?** The service logs an error, skips the cycle, and retries after `CHECK_INTERVAL`. API requests retry up to 3 times with jittered exponential backoff; 429 and 408 are retried too, and the panel's `Retry-After` header is honoured. A cycle in which no node could be polled does not count as successful — `/healthz` will surface the problem.
+**What if the panel API is unavailable?** The service logs an error, skips the cycle, and retries after `CHECK_INTERVAL`. API requests retry up to 3 times with jittered exponential backoff; 429 and 408 are retried too, and the panel's `Retry-After` header is honoured. A cycle does not count as successful when no node could be polled, when the panel has no active node at all, or when no user could be checked (Redis or the user request is unavailable) — `/healthz` will surface the problem.
 
 **Can I use Redis from Remnawave?** You can, but it's not recommended — the project runs its own Redis. For an existing one, set `REDIS_URL`.
 

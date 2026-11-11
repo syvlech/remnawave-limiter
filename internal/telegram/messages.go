@@ -17,23 +17,25 @@ const (
 	maxIPRows    = 30
 )
 
-func FormatManualAlert(user *api.CachedUser, ips []api.ActiveIP, limit int, violationCount int64, loc *time.Location, subnetGroups int, subnetEnabled bool, asnGroups int, asnEnabled bool) string {
+func FormatManualAlert(user *api.CachedUser, ips []api.ActiveIP, limit int, violationCount int64, loc *time.Location, subnetGroups int, subnetEnabled bool, asnGroups int, asnEnabled bool, ev *Evidence) string {
 	var b strings.Builder
 
 	b.WriteString("<h3>" + escapeHTML(i18n.T("alert.manual.title")) + "</h3>")
 	b.WriteString("<table bordered striped compact>")
 	writeUserRows(&b, user)
 	writeGroupingRows(&b, limit, ips, subnetGroups, subnetEnabled, asnGroups, asnEnabled)
+	writeEvidenceRows(&b, ev, limit)
 	b.WriteString(tableRow(i18n.T("alert.violations_24h"), strconv.FormatInt(violationCount, 10)))
 	b.WriteString(tableRow(i18n.T("alert.time"), tgTime(time.Now(), loc, "wDT")))
 	b.WriteString("</table>")
 
 	writeIPTable(&b, ips, true)
+	writeEvidenceDetails(&b, ev, loc)
 
 	return b.String()
 }
 
-func FormatAutoAlert(user *api.CachedUser, ips []api.ActiveIP, limit, durationMinutes int, violationCount int64, loc *time.Location, subnetGroups int, subnetEnabled bool, asnGroups int, asnEnabled bool) string {
+func FormatAutoAlert(user *api.CachedUser, ips []api.ActiveIP, limit, durationMinutes int, violationCount int64, loc *time.Location, subnetGroups int, subnetEnabled bool, asnGroups int, asnEnabled bool, ev *Evidence) string {
 	var b strings.Builder
 	now := time.Now()
 
@@ -41,6 +43,7 @@ func FormatAutoAlert(user *api.CachedUser, ips []api.ActiveIP, limit, durationMi
 	b.WriteString("<table bordered striped compact>")
 	writeUserRows(&b, user)
 	writeGroupingRows(&b, limit, ips, subnetGroups, subnetEnabled, asnGroups, asnEnabled)
+	writeEvidenceRows(&b, ev, limit)
 	b.WriteString(tableRow(i18n.T("alert.violations_24h"), strconv.FormatInt(violationCount, 10)))
 	if durationMinutes == 0 {
 		b.WriteString(tableRow(i18n.T("alert.disabled_for"), "<b>"+escapeHTML(i18n.T("alert.permanent"))+"</b>"))
@@ -53,36 +56,39 @@ func FormatAutoAlert(user *api.CachedUser, ips []api.ActiveIP, limit, durationMi
 	b.WriteString("</table>")
 
 	writeIPTable(&b, ips, false)
+	writeEvidenceDetails(&b, ev, loc)
 
 	return b.String()
 }
 
-func FormatSoftAlert(user *api.CachedUser, ips []api.ActiveIP, limit, banThreshold int, loc *time.Location, subnetGroups int, subnetEnabled bool, asnGroups int, asnEnabled bool) string {
+func FormatSoftAlert(user *api.CachedUser, ips []api.ActiveIP, limit, banThreshold int, loc *time.Location, subnetGroups int, subnetEnabled bool, asnGroups int, asnEnabled bool, ev *Evidence) string {
 	var b strings.Builder
 
 	b.WriteString("<h3>" + escapeHTML(i18n.T("alert.soft.title")) + "</h3>")
 	b.WriteString("<table bordered striped compact>")
 	writeUserRows(&b, user)
 	writeGroupingRows(&b, limit, ips, subnetGroups, subnetEnabled, asnGroups, asnEnabled)
+	writeEvidenceRows(&b, ev, limit)
 	b.WriteString(tableRow(i18n.T("alert.ban_threshold"), strconv.Itoa(banThreshold)))
 	b.WriteString(tableRow(i18n.T("alert.time"), tgTime(time.Now(), loc, "wDT")))
 	b.WriteString("</table>")
 	b.WriteString("<blockquote>" + escapeHTML(i18n.T("alert.soft.note")) + "</blockquote>")
 
 	writeIPTable(&b, ips, false)
+	writeEvidenceDetails(&b, ev, loc)
 
 	return b.String()
 }
 
 func FormatStats(stats *cache.ViolationStats, loc *time.Location) string {
-	return formatStatsMessage(i18n.T("stats.title"), stats, loc)
+	return formatStatsMessage(i18n.T("stats.title"), stats, loc, nil)
 }
 
-func FormatDailyReport(stats *cache.ViolationStats, loc *time.Location) string {
-	return formatStatsMessage(i18n.T("stats.daily_title"), stats, loc)
+func FormatDailyReport(stats *cache.ViolationStats, loc *time.Location, heavy *HeavyTrafficReport) string {
+	return formatStatsMessage(i18n.T("stats.daily_title"), stats, loc, heavy)
 }
 
-func formatStatsMessage(title string, stats *cache.ViolationStats, loc *time.Location) string {
+func formatStatsMessage(title string, stats *cache.ViolationStats, loc *time.Location, heavy *HeavyTrafficReport) string {
 	var b strings.Builder
 
 	b.WriteString("<h3>" + escapeHTML(title) + "</h3>")
@@ -117,9 +123,40 @@ func formatStatsMessage(title string, stats *cache.ViolationStats, loc *time.Loc
 		b.WriteString("</table>")
 	}
 
+	writeHeavyTraffic(&b, heavy)
 	b.WriteString("<footer>" + escapeHTML(i18n.T("stats.updated")) + " " + tgTime(time.Now(), loc, "wDT") + "</footer>")
 
 	return b.String()
+}
+
+func writeHeavyTraffic(b *strings.Builder, heavy *HeavyTrafficReport) {
+	if heavy == nil {
+		return
+	}
+	b.WriteString("<h4>" + escapeHTML(i18n.T("traffic.heavy.title")) + "</h4>")
+	b.WriteString("<p>" + escapeHTML(fmt.Sprintf(i18n.T("report.heavy_rule"), FormatBytes(heavy.HeavyBytes), heavy.MinDays, heavy.Window)) + "</p>")
+	if len(heavy.Rows) == 0 {
+		b.WriteString("<blockquote>" + escapeHTML(i18n.T("report.heavy_empty")) + "</blockquote>")
+		return
+	}
+	b.WriteString("<table striped compact><tr>")
+	b.WriteString("<th align=\"center\">#</th>")
+	b.WriteString("<th align=\"left\">" + escapeHTML(i18n.T("stats.col_user")) + "</th>")
+	b.WriteString("<th align=\"right\">" + escapeHTML(i18n.T("report.col_days")) + "</th>")
+	b.WriteString("<th align=\"right\">" + escapeHTML(i18n.T("report.col_week")) + "</th>")
+	b.WriteString("</tr>")
+	for i, r := range heavy.Rows {
+		b.WriteString("<tr>")
+		b.WriteString(fmt.Sprintf("<td align=\"center\">%d</td>", i+1))
+		b.WriteString("<td><code>" + escapeHTML(r.Name) + "</code></td>")
+		b.WriteString(fmt.Sprintf("<td align=\"right\">%d / %d</td>", r.Days, heavy.Window))
+		b.WriteString("<td align=\"right\"><b>" + escapeHTML(FormatBytes(r.Week)) + "</b></td>")
+		b.WriteString("</tr>")
+	}
+	if rest := heavy.Total - len(heavy.Rows); rest > 0 {
+		b.WriteString("<tr><td colspan=\"4\" align=\"center\">" + escapeHTML(fmt.Sprintf(i18n.T("alert.and_more"), rest)) + "</td></tr>")
+	}
+	b.WriteString("</table>")
 }
 
 func rankMark(i int) string {
@@ -185,8 +222,8 @@ func writeIPTable(b *strings.Builder, ips []api.ActiveIP, open bool) {
 	b.WriteString("</tr>")
 	for i, ip := range ips {
 		if i >= maxIPRows {
-			b.WriteString(fmt.Sprintf("<tr><td colspan=\"3\" align=\"center\">… %s %d</td></tr>",
-				escapeHTML(i18n.T("alert.and_more")), len(ips)-maxIPRows))
+			b.WriteString("<tr><td colspan=\"3\" align=\"center\">" +
+				escapeHTML(fmt.Sprintf(i18n.T("alert.and_more"), len(ips)-maxIPRows)) + "</td></tr>")
 			break
 		}
 		href := "https://ipinfo.io/" + url.PathEscape(ip.IP)
@@ -273,7 +310,7 @@ func FormatDuration(minutes int) string {
 	return fmt.Sprintf("%d %s %d %s %d %s", days, i18n.T("duration.day"), remHours, i18n.T("duration.hour"), mins, i18n.T("duration.min"))
 }
 
-func FormatStartupMessage(version, actionMode string, checkInterval, cooldown, tolerance int, toleranceMultiplier float64, defaultDeviceLimit, autoDisableDuration int, autoNotifySoft, webhookEnabled, subnetGrouping bool, subnetPrefixV4 int, asnGrouping, maxmindLoaded bool, violationThreshold, violationThresholdWindow int) string {
+func FormatStartupMessage(version, actionMode string, checkInterval, cooldown, tolerance int, toleranceMultiplier float64, defaultDeviceLimit, autoDisableDuration int, autoNotifySoft, webhookEnabled, subnetGrouping bool, subnetPrefixV4 int, asnGrouping, maxmindLoaded bool, maxmindBuilt time.Time, violationThreshold, violationThresholdWindow int) string {
 	var b strings.Builder
 	sec := i18n.T("startup.sec")
 
@@ -321,14 +358,30 @@ func FormatStartupMessage(version, actionMode string, checkInterval, cooldown, t
 	b.WriteString(tableRow("🔗 "+i18n.T("startup.webhook"), onOff(webhookEnabled)))
 
 	maxmind := "✅ " + escapeHTML(i18n.T("startup.maxmind_loaded"))
+	if !maxmindBuilt.IsZero() {
+		maxmind = "✅ " + escapeHTML(fmt.Sprintf(i18n.T("startup.maxmind_loaded_at"), maxmindBuilt.UTC().Format(i18n.T("startup.date_layout"))))
+	}
 	if !maxmindLoaded {
 		maxmind = "⚠️ " + escapeHTML(i18n.T("startup.maxmind_unavailable"))
 	}
 	b.WriteString(tableRow("🌍 "+i18n.T("startup.maxmind"), maxmind))
 	b.WriteString("</table>")
 
+	b.WriteString("<p>" + escapeHTML(i18n.T("startup.star_hint")) + "</p>")
 	b.WriteString("<footer>" + escapeHTML(i18n.T("startup.settings_hint")) + "</footer>")
 
+	return b.String()
+}
+
+func FormatUpdateNotice(current, latest string) string {
+	var b strings.Builder
+	b.WriteString("<h3>" + escapeHTML(i18n.T("update.title")) + "</h3>")
+	b.WriteString("<table bordered striped compact>")
+	b.WriteString(tableRow("📦 "+i18n.T("update.current"), "<code>"+escapeHTML(current)+"</code>"))
+	b.WriteString(tableRow("🆕 "+i18n.T("update.latest"), "<b><code>"+escapeHTML(latest)+"</code></b>"))
+	b.WriteString("</table>")
+	b.WriteString("<footer>" + escapeHTML(i18n.T("update.how")) +
+		" <code>docker compose pull &amp;&amp; docker compose up -d</code></footer>")
 	return b.String()
 }
 

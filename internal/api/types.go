@@ -88,6 +88,56 @@ type CachedUser struct {
 	Email           string `json:"email"`
 	TelegramID      int64  `json:"telegram_id"`
 	HWIDDeviceLimit int    `json:"hwid_device_limit"`
-	Status          string `json:"status"`
 	SubscriptionURL string `json:"subscription_url"`
+}
+
+type HWIDDevicesResponse struct {
+	Response struct {
+		Total   int          `json:"total"`
+		Devices []HWIDDevice `json:"devices"`
+	} `json:"response"`
+}
+
+type HWIDDevice struct {
+	HWID        string    `json:"hwid"`
+	Platform    string    `json:"platform"`
+	OSVersion   string    `json:"osVersion"`
+	DeviceModel string    `json:"deviceModel"`
+	UserAgent   string    `json:"userAgent"`
+	RequestIP   string    `json:"requestIp"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
+type SubscriptionHistoryResponse struct {
+	Response struct {
+		Total   int                   `json:"total"`
+		Records []SubscriptionRequest `json:"records"`
+	} `json:"response"`
+}
+
+type SubscriptionRequest struct {
+	RequestAt time.Time `json:"requestAt"`
+	RequestIP string    `json:"requestIp"`
+	UserAgent string    `json:"userAgent"`
+}
+
+type NodesUsageRequest struct {
+	NodesUUIDs []string `json:"nodesUuids"`
+}
+
+type NodesUsageResponse struct {
+	Response struct {
+		Nodes []NodeUsage `json:"nodes"`
+	} `json:"response"`
+}
+
+type NodeUsage struct {
+	UUID  string      `json:"uuid"`
+	Users []UserUsage `json:"users"`
+}
+
+type UserUsage struct {
+	ID         int64 `json:"id"`
+	TotalBytes int64 `json:"totalBytes"`
 }

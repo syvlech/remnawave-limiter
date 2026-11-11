@@ -1,6 +1,10 @@
 package config
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/remnawave/limiter/internal/i18n"
+)
 
 func TestLoadConfig_ChineseLanguage(t *testing.T) {
 	clearEnv()
@@ -9,9 +13,25 @@ func TestLoadConfig_ChineseLanguage(t *testing.T) {
 
 	cfg, err := LoadConfig("")
 	if err != nil {
-		t.Fatalf("LANGUAGE=zh should be accepted: %v", err)
+		t.Fatalf("LANGUAGE=zh должен приниматься: %v", err)
 	}
 	if cfg.Language != "zh" {
-		t.Errorf("Language = %q, want zh", cfg.Language)
+		t.Errorf("Language = %q, ожидался zh", cfg.Language)
+	}
+}
+
+func TestLoadConfig_ErrorsUseSelectedLanguage(t *testing.T) {
+	t.Cleanup(func() { i18n.SetLanguage("ru") })
+	for _, tc := range []struct{ lang, want string }{
+		{"ru", "REMNAWAVE_API_URL — обязательный параметр"},
+		{"en", "REMNAWAVE_API_URL is required"},
+		{"zh", "缺少必填参数 REMNAWAVE_API_URL"},
+	} {
+		clearEnv()
+		i18n.SetLanguage(tc.lang)
+		_, err := LoadConfig("")
+		if err == nil || err.Error() != tc.want {
+			t.Errorf("%s: ошибка = %v, ожидалась %q", tc.lang, err, tc.want)
+		}
 	}
 }

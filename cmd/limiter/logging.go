@@ -12,8 +12,6 @@ import (
 	"github.com/remnawave/limiter/internal/config"
 )
 
-var stdout = os.Stdout
-
 type consoleFormatter struct {
 	timeFormat string
 }
@@ -71,7 +69,7 @@ func (f *consoleFormatter) Format(e *logrus.Entry) ([]byte, error) {
 
 func newLogger() *logrus.Logger {
 	logger := logrus.New()
-	logger.SetOutput(stdout)
+	logger.SetOutput(os.Stdout)
 	logger.SetFormatter(&consoleFormatter{timeFormat: defaultTimeFormat})
 	return logger
 }

@@ -3,12 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/remnawave/limiter/internal/i18n"
 	"time"
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/remnawave/limiter/internal/api"
 	"github.com/remnawave/limiter/internal/config"
+	"github.com/remnawave/limiter/internal/i18n"
 	"github.com/remnawave/limiter/internal/telegram"
 )
 
@@ -25,6 +26,8 @@ type actionStore interface {
 	AddToWhitelistTemp(ctx context.Context, userID int64, ttl time.Duration) error
 }
 
+const actionStoreTimeout = 10 * time.Second
+
 func newActionHandler(panel userActions, store actionStore, cfg *config.Provider, logger *logrus.Logger) telegram.ActionHandler {
 	return func(ctx context.Context, a telegram.Action) error {
 		switch a.Name {
@@ -32,7 +35,7 @@ func newActionHandler(panel userActions, store actionStore, cfg *config.Provider
 			return panel.DropConnections(ctx, []int64{a.UserID})
 
 		case "disable":
-			if err := panel.DisableUser(ctx, a.UserID); err != nil {
+			if err := panel.DisableUser(ctx, a.UserID); err != nil && !api.IsAlreadyDisabled(err) {
 				return err
 			}
 			return store.RemoveRestoreTimer(ctx, a.UserID)
@@ -40,19 +43,28 @@ func newActionHandler(panel userActions, store actionStore, cfg *config.Provider
 		case "disable_temp":
 			minutes := buttonMinutes(a, cfg.Load().AutoDisableDuration)
 			if minutes <= 0 {
-				return fmt.Errorf("длительность отключения неизвестна: %w", telegram.ErrStaleAction)
+				return fmt.Errorf(i18n.T("error.action.disable_duration"), telegram.ErrStaleAction)
 			}
+			disabledNow := true
 			if err := panel.DisableUser(ctx, a.UserID); err != nil {
-				return err
+				if !api.IsAlreadyDisabled(err) {
+					return err
+				}
+				disabledNow = false
 			}
-			if err := store.SetRestoreTimer(ctx, a.UserID, time.Duration(minutes)*time.Minute); err != nil {
+			storeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), actionStoreTimeout)
+			defer cancel()
+			if err := store.SetRestoreTimer(storeCtx, a.UserID, time.Duration(minutes)*time.Minute); err != nil {
 				logger.WithError(err).WithField("userID", a.UserID).Error(i18n.T("log.restore_timer_failed"))
-				return err
+				if disabledNow && panel.EnableUser(storeCtx, a.UserID) == nil {
+					return fmt.Errorf(i18n.T("error.action.timer_rolled_back"), err)
+				}
+				return fmt.Errorf(i18n.T("error.action.timer_missing"), err)
 			}
 			return nil
 
 		case "enable":
-			if err := panel.EnableUser(ctx, a.UserID); err != nil {
+			if err := panel.EnableUser(ctx, a.UserID); err != nil && !api.IsAlreadyEnabled(err) {
 				return err
 			}
 			return store.RemoveRestoreTimer(ctx, a.UserID)
@@ -63,11 +75,11 @@ func newActionHandler(panel userActions, store actionStore, cfg *config.Provider
 		case "ignore_temp":
 			minutes := buttonMinutes(a, cfg.Load().IgnoreDuration)
 			if minutes <= 0 {
-				return fmt.Errorf("длительность игнорирования неизвестна: %w", telegram.ErrStaleAction)
+				return fmt.Errorf(i18n.T("error.action.ignore_duration"), telegram.ErrStaleAction)
 			}
 			return store.AddToWhitelistTemp(ctx, a.UserID, time.Duration(minutes)*time.Minute)
 		}
-		return fmt.Errorf("неизвестное действие %q: %w", a.Name, telegram.ErrStaleAction)
+		return fmt.Errorf(i18n.T("error.action.unknown"), a.Name, telegram.ErrStaleAction)
 	}
 }
 

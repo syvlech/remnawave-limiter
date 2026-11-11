@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -33,6 +34,9 @@ func clearEnv() {
 		"HEALTH_ADDR",
 		"LOG_LEVEL", "LOG_FORMAT",
 		"REMNAWAVE_COOKIES", "REMNAWAVE_HEADERS",
+		"UPDATE_CHECK",
+		"TRAFFIC_MONITOR", "TRAFFIC_SPIKE_FACTOR", "TRAFFIC_SPIKE_MIN_GB",
+		"TRAFFIC_HEAVY_GB", "TRAFFIC_HEAVY_DAYS", "TRAFFIC_IGNORED_NODE_UUIDS",
 	}
 	for _, v := range vars {
 		os.Unsetenv(v)
@@ -72,11 +76,11 @@ func TestLoadConfig_Defaults(t *testing.T) {
 		t.Errorf("TelegramAdminIDs = %v, want [111 222]", cfg.TelegramAdminIDs)
 	}
 
-	if cfg.CheckInterval != 30 {
-		t.Errorf("CheckInterval = %d, want 30", cfg.CheckInterval)
+	if cfg.CheckInterval != 60 {
+		t.Errorf("CheckInterval = %d, want 60", cfg.CheckInterval)
 	}
-	if cfg.ActiveIPWindow != 300 {
-		t.Errorf("ActiveIPWindow = %d, want 300", cfg.ActiveIPWindow)
+	if cfg.ActiveIPWindow != 120 {
+		t.Errorf("ActiveIPWindow = %d, want 120", cfg.ActiveIPWindow)
 	}
 	if cfg.Tolerance != 0 {
 		t.Errorf("Tolerance = %d, want 0", cfg.Tolerance)
@@ -96,8 +100,8 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	if cfg.ActionMode != "manual" {
 		t.Errorf("ActionMode = %q, want %q", cfg.ActionMode, "manual")
 	}
-	if cfg.AutoDisableDuration != 0 {
-		t.Errorf("AutoDisableDuration = %d, want 0", cfg.AutoDisableDuration)
+	if cfg.AutoDisableDuration != 15 {
+		t.Errorf("AutoDisableDuration = %d, want 15", cfg.AutoDisableDuration)
 	}
 	if cfg.IgnoreDuration != 0 {
 		t.Errorf("IgnoreDuration = %d, want 0", cfg.IgnoreDuration)
@@ -827,5 +831,217 @@ func TestLoadConfig_WebhookSecretHeaderDefaultsOn(t *testing.T) {
 	}
 	if cfg.WebhookSecretHeader {
 		t.Error("WEBHOOK_SECRET_HEADER=false должен отключать заголовок")
+	}
+}
+
+func TestValidate_UpperBounds(t *testing.T) {
+	for key, value := range map[string]string{
+		"CHECK_INTERVAL":             "10000000000",
+		"ACTIVE_IP_WINDOW":           "10000000000",
+		"COOLDOWN":                   "9223372037",
+		"USER_CACHE_TTL":             "9223372037",
+		"VIOLATION_THRESHOLD_WINDOW": "10000000000",
+		"AUTO_DISABLE_DURATION":      "153722868",
+		"IGNORE_DURATION":            "153722868",
+		"TRAFFIC_SPIKE_MIN_GB":       "17179869184",
+		"TRAFFIC_HEAVY_GB":           "17179869184",
+	} {
+		t.Run(key, func(t *testing.T) {
+			clearEnv()
+			setRequiredEnv()
+			os.Setenv(key, value)
+			defer os.Unsetenv(key)
+			_, err := LoadConfig("")
+			if err == nil || !strings.Contains(err.Error(), key) {
+				t.Fatalf("%s=%s должен отклоняться, ошибка: %v", key, value, err)
+			}
+		})
+	}
+}
+
+func TestLoadConfig_WhitelistIDsAreCanonical(t *testing.T) {
+	clearEnv()
+	setRequiredEnv()
+	os.Setenv("WHITELIST_USER_IDS", "007, +5,42")
+	defer os.Unsetenv("WHITELIST_USER_IDS")
+	cfg, err := LoadConfig("")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := strings.Join(cfg.WhitelistUserIDs, ","); got != "7,5,42" {
+		t.Errorf("WhitelistUserIDs = %q, ожидалось 7,5,42", got)
+	}
+}
+
+func TestLoadConfig_EmptyAdminList(t *testing.T) {
+	clearEnv()
+	setRequiredEnv()
+	os.Setenv("TELEGRAM_ADMIN_IDS", " , ")
+	if _, err := LoadConfig(""); err == nil {
+		t.Fatal("пустой список администраторов должен отклоняться")
+	}
+}
+
+func TestValidate_ErrorsDoNotLeakURLPasswords(t *testing.T) {
+	for key, value := range map[string]string{
+		"REDIS_URL":      "valkey://:s3cr3t@redis:6379",
+		"TELEGRAM_PROXY": "ftp://user:s3cr3t@host:1080",
+	} {
+		t.Run(key, func(t *testing.T) {
+			clearEnv()
+			setRequiredEnv()
+			os.Setenv(key, value)
+			defer os.Unsetenv(key)
+			_, err := LoadConfig("")
+			if err == nil {
+				t.Fatalf("%s=%s должен отклоняться", key, value)
+			}
+			if strings.Contains(err.Error(), "s3cr3t") {
+				t.Errorf("пароль попал в текст ошибки: %v", err)
+			}
+		})
+	}
+}
+
+func TestLoadEnvFile_ReportsBrokenFileAndLoadsOnce(t *testing.T) {
+	dir := t.TempDir()
+	broken := dir + "/broken.env"
+	if err := os.WriteFile(broken, []byte("KEY=\"unterminated\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := LoadEnvFile(broken); err == nil {
+		t.Error("синтаксическая ошибка в .env не должна проглатываться")
+	}
+	if err := LoadEnvFile(dir + "/missing.env"); err != nil {
+		t.Errorf("отсутствие файла — не ошибка: %v", err)
+	}
+
+	good := dir + "/good.env"
+	os.Unsetenv("LIMITER_TEST_ENV_ONCE")
+	defer os.Unsetenv("LIMITER_TEST_ENV_ONCE")
+	if err := os.WriteFile(good, []byte("LIMITER_TEST_ENV_FIRST=1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Unsetenv("LIMITER_TEST_ENV_FIRST")
+	if err := LoadEnvFile(good); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(good, []byte("LIMITER_TEST_ENV_ONCE=1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := LoadEnvFile(good); err != nil {
+		t.Fatal(err)
+	}
+	if os.Getenv("LIMITER_TEST_ENV_ONCE") != "" {
+		t.Error("повторная загрузка .env не должна подхватывать новые переменные без перезапуска")
+	}
+}
+
+func TestValidate_APIURLWithoutQueryAndHealthPort(t *testing.T) {
+	bad := map[string]string{
+		"REMNAWAVE_API_URL": "https://panel.example.com/?key=x",
+		"HEALTH_ADDR":       ":99999",
+	}
+	for key, value := range bad {
+		t.Run(key, func(t *testing.T) {
+			clearEnv()
+			setRequiredEnv()
+			os.Setenv(key, value)
+			defer os.Unsetenv(key)
+			if _, err := LoadConfig(""); err == nil || !strings.Contains(err.Error(), key) {
+				t.Fatalf("%s=%s должен отклоняться, ошибка: %v", key, value, err)
+			}
+		})
+	}
+
+	clearEnv()
+	setRequiredEnv()
+	os.Setenv("HEALTH_ADDR", "host:notaport")
+	if _, err := LoadConfig(""); err == nil {
+		t.Error("нечисловой порт в HEALTH_ADDR должен отклоняться")
+	}
+	os.Setenv("HEALTH_ADDR", "127.0.0.1:8080")
+	os.Setenv("WEBHOOK_URL", "https://hooks.example.com/in?token=abc")
+	defer os.Unsetenv("HEALTH_ADDR")
+	defer os.Unsetenv("WEBHOOK_URL")
+	if _, err := LoadConfig(""); err != nil {
+		t.Errorf("корректный HEALTH_ADDR и WEBHOOK_URL с query должны проходить: %v", err)
+	}
+}
+
+func TestDefaultsMatchEnvExample(t *testing.T) {
+	data, err := os.ReadFile("../../.env.example")
+	if err != nil {
+		t.Fatalf("не удалось прочитать .env.example: %v", err)
+	}
+	required := map[string]bool{
+		"REMNAWAVE_API_URL": true, "REMNAWAVE_API_TOKEN": true,
+		"TELEGRAM_BOT_TOKEN": true, "TELEGRAM_CHAT_ID": true, "TELEGRAM_ADMIN_IDS": true,
+	}
+
+	clearEnv()
+	setRequiredEnv()
+	defer clearEnv()
+	defaults, err := LoadConfig("")
+	if err != nil {
+		t.Fatalf("умолчания кода не проходят проверку: %v", err)
+	}
+
+	seen := 0
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok || required[key] {
+			continue
+		}
+		seen++
+		os.Setenv(key, value)
+		defer os.Unsetenv(key)
+	}
+	if seen < 30 {
+		t.Fatalf("в .env.example найдено только %d параметров, файл разобран неверно", seen)
+	}
+	example, err := LoadConfig("")
+	if err != nil {
+		t.Fatalf("значения из .env.example не проходят проверку: %v", err)
+	}
+	if !reflect.DeepEqual(defaults, example) {
+		t.Errorf("умолчания кода расходятся с .env.example:\nкод:     %+v\nпример: %+v", *defaults, *example)
+	}
+}
+
+func TestValidate_TrafficBounds(t *testing.T) {
+	bad := []struct{ key, value string }{
+		{"TRAFFIC_SPIKE_FACTOR", "1.4"},
+		{"TRAFFIC_SPIKE_FACTOR", "101"},
+		{"TRAFFIC_SPIKE_FACTOR", "NaN"},
+		{"TRAFFIC_SPIKE_MIN_GB", "0"},
+		{"TRAFFIC_HEAVY_GB", "-1"},
+		{"TRAFFIC_HEAVY_DAYS", "0"},
+		{"TRAFFIC_HEAVY_DAYS", "8"},
+	}
+	for _, tc := range bad {
+		t.Run(tc.key+"="+tc.value, func(t *testing.T) {
+			clearEnv()
+			setRequiredEnv()
+			os.Setenv(tc.key, tc.value)
+			defer os.Unsetenv(tc.key)
+			if _, err := LoadConfig(""); err == nil {
+				t.Fatalf("%s=%s должен отклоняться", tc.key, tc.value)
+			}
+		})
+	}
+
+	clearEnv()
+	setRequiredEnv()
+	os.Setenv("TRAFFIC_SPIKE_FACTOR", "1.5")
+	os.Setenv("TRAFFIC_HEAVY_GB", "0")
+	os.Setenv("TRAFFIC_HEAVY_DAYS", "7")
+	defer clearEnv()
+	if _, err := LoadConfig(""); err != nil {
+		t.Errorf("граничные значения должны проходить: %v", err)
 	}
 }

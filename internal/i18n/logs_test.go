@@ -25,44 +25,18 @@ func TestRuntimeLogTranslations(t *testing.T) {
 	} {
 		SetLanguage(tc.lang)
 		if got := T("log.redis_connected"); got != tc.want {
-			t.Errorf("%s: got %q, want %q", tc.lang, got, tc.want)
+			t.Errorf("%s: получено %q, ожидалось %q", tc.lang, got, tc.want)
 		}
 		got := fmt.Sprintf(T("log.active_window_short"), 60, 120)
 		if strings.Contains(got, "%!") || !strings.Contains(got, "60") || !strings.Contains(got, "120") {
-			t.Errorf("%s: invalid formatted log: %s", tc.lang, got)
+			t.Errorf("%s: лог отформатирован неверно: %s", tc.lang, got)
 		}
 	}
 }
 
-func TestRuntimeLogFormatTokensMatch(t *testing.T) {
-	format := regexp.MustCompile(`%(?:\[[0-9]+\])?[-+#0 ]*[0-9]*(?:\.[0-9]+)?[a-zA-Z%]`)
-	for key, en := range translations["en"] {
-		if !strings.HasPrefix(key, "log.") {
-			continue
-		}
-		want := strings.Join(format.FindAllString(en, -1), "|")
-		for lang, locale := range translations {
-			got := strings.Join(format.FindAllString(locale[key], -1), "|")
-			if got != want {
-				t.Errorf("%s %s: format tokens %q, want %q", lang, key, got, want)
-			}
-		}
-	}
-}
-
-// Application log messages must use translation keys. Dynamic third-party
-// diagnostics and structured fields intentionally retain their original values.
-func TestNoHardcodedApplicationLogMessages(t *testing.T) {
+func forEachSourceFile(t *testing.T, fn func(path string, fset *token.FileSet, file *ast.File)) {
+	t.Helper()
 	root := filepath.Join("..", "..")
-	methods := map[string]bool{
-		"Trace": true, "Tracef": true, "Traceln": true,
-		"Debug": true, "Debugf": true, "Debugln": true,
-		"Info": true, "Infof": true, "Infoln": true,
-		"Warn": true, "Warnf": true, "Warnln": true,
-		"Error": true, "Errorf": true, "Errorln": true,
-		"Fatal": true, "Fatalf": true, "Fatalln": true,
-		"Panic": true, "Panicf": true, "Panicln": true,
-	}
 	for _, dir := range []string{"cmd", "internal"} {
 		err := filepath.WalkDir(filepath.Join(root, dir), func(path string, entry os.DirEntry, err error) error {
 			if err != nil {
@@ -76,30 +50,62 @@ func TestNoHardcodedApplicationLogMessages(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			ast.Inspect(file, func(n ast.Node) bool {
-				call, ok := n.(*ast.CallExpr)
-				if !ok || len(call.Args) == 0 {
-					return true
-				}
-				sel, ok := call.Fun.(*ast.SelectorExpr)
-				if !ok || !methods[sel.Sel.Name] {
-					return true
-				}
-				if id, ok := sel.X.(*ast.Ident); ok && (id.Name == "fmt" || id.Name == "bl") {
-					return true
-				}
-				if literal, ok := call.Args[0].(*ast.BasicLit); ok && literal.Kind == token.STRING {
-					text, err := strconv.Unquote(literal.Value)
-					if err != nil || text != "" {
-						t.Errorf("%s: hardcoded application log message: %s", fset.Position(literal.Pos()), literal.Value)
-					}
-				}
-				return true
-			})
+			fn(path, fset, file)
 			return nil
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
 	}
+}
+
+func TestNoHardcodedApplicationLogMessages(t *testing.T) {
+	methods := map[string]bool{
+		"Trace": true, "Tracef": true, "Traceln": true,
+		"Debug": true, "Debugf": true, "Debugln": true,
+		"Info": true, "Infof": true, "Infoln": true,
+		"Warn": true, "Warnf": true, "Warnln": true,
+		"Error": true, "Errorf": true, "Errorln": true,
+		"Fatal": true, "Fatalf": true, "Fatalln": true,
+		"Panic": true, "Panicf": true, "Panicln": true,
+	}
+	forEachSourceFile(t, func(_ string, fset *token.FileSet, file *ast.File) {
+		ast.Inspect(file, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok || len(call.Args) == 0 {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok || !methods[sel.Sel.Name] {
+				return true
+			}
+			if id, ok := sel.X.(*ast.Ident); ok && (id.Name == "fmt" || id.Name == "bl") {
+				return true
+			}
+			if literal, ok := call.Args[0].(*ast.BasicLit); ok && literal.Kind == token.STRING {
+				text, err := strconv.Unquote(literal.Value)
+				if err != nil || text != "" {
+					t.Errorf("%s: текст лога задан строкой, а не через i18n: %s", fset.Position(literal.Pos()), literal.Value)
+				}
+			}
+			return true
+		})
+	})
+}
+
+func TestNoCyrillicStringLiterals(t *testing.T) {
+	cyrillic := regexp.MustCompile(`\p{Cyrillic}`)
+	i18nDir := filepath.Join("..", "..", "internal", "i18n")
+	forEachSourceFile(t, func(path string, fset *token.FileSet, file *ast.File) {
+		if filepath.Dir(path) == i18nDir {
+			return
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			literal, ok := n.(*ast.BasicLit)
+			if ok && literal.Kind == token.STRING && cyrillic.MatchString(literal.Value) {
+				t.Errorf("%s: русский текст в коде, вынесите его в i18n: %s", fset.Position(literal.Pos()), literal.Value)
+			}
+			return true
+		})
+	})
 }

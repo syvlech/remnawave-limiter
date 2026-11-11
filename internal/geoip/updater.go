@@ -2,10 +2,12 @@ package geoip
 
 import (
 	"context"
-	"github.com/remnawave/limiter/internal/i18n"
+	"os"
 	"time"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/remnawave/limiter/internal/i18n"
 )
 
 type downloader interface {
@@ -25,17 +27,33 @@ type Updater struct {
 }
 
 func (u *Updater) Run(ctx context.Context) {
-	ticker := time.NewTicker(u.Interval)
-	defer ticker.Stop()
+	timer := time.NewTimer(u.firstDelay())
+	defer timer.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-timer.C:
 			u.tick(ctx)
+			timer.Reset(u.Interval)
 		}
 	}
+}
+
+func (u *Updater) firstDelay() time.Duration {
+	info, err := os.Stat(u.DstPath)
+	if err != nil {
+		return u.Interval
+	}
+	age := time.Since(info.ModTime())
+	if age < 0 {
+		return u.Interval
+	}
+	if age >= u.Interval {
+		return 0
+	}
+	return u.Interval - age
 }
 
 func (u *Updater) tick(ctx context.Context) {

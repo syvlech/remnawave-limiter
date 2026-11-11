@@ -142,3 +142,28 @@ func TestMergeSavedOverrides_ConflictingCombination(t *testing.T) {
 		t.Errorf("итоговый конфиг невалиден: %v", err)
 	}
 }
+
+func TestMergeSavedOverrides_KeepsValidPairNextToInvalidKey(t *testing.T) {
+	clearEnv()
+	setRequiredEnv()
+	defer clearEnv()
+
+	saved := map[string]string{
+		"VIOLATION_THRESHOLD":        "20",
+		"VIOLATION_THRESHOLD_WINDOW": "10000",
+		"SUBNET_PREFIX_V4":           "40",
+	}
+	cfg, applied, rejected, err := MergeSavedOverrides("", saved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ViolationThreshold != 20 || cfg.ViolationThresholdWindow != 10000 {
+		t.Errorf("валидная пара потеряна: порог %d, окно %d", cfg.ViolationThreshold, cfg.ViolationThresholdWindow)
+	}
+	if len(applied) != 2 {
+		t.Errorf("applied = %v", applied)
+	}
+	if len(rejected) != 1 || rejected["SUBNET_PREFIX_V4"] == nil {
+		t.Errorf("отклониться должен только SUBNET_PREFIX_V4: %v", rejected)
+	}
+}

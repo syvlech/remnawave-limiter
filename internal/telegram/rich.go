@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
+	"net/netip"
 	"regexp"
 	"strings"
 	"time"
@@ -138,14 +139,37 @@ func (m richMsg) keyboard() *models.InlineKeyboardMarkup {
 var (
 	reBlockBreak = regexp.MustCompile(`(?i)<(br\s*/?|/p|/h[1-6]|/tr|/li|/blockquote|/footer|/summary|/caption|hr\s*/?)>`)
 	reCellBreak  = regexp.MustCompile(`(?i)</t[hd]>`)
-	reButtonRow  = regexp.MustCompile(`(?is)<tg-button-row[^>]*>.*?</tg-button-row>`)
+	reAnchor     = regexp.MustCompile(`(?is)<a\s[^>]*?href\s*=\s*(?:"([^"]*)"|'([^']*)')[^>]*>(.*?)</a>`)
 	reAnyTag     = regexp.MustCompile(`<[^>]+>`)
 	reManyBlank  = regexp.MustCompile(`\n{3,}`)
 	reLineSpaces = regexp.MustCompile(`[ \t]+\n`)
 )
 
+func expandLinks(richHTML string) string {
+	return reAnchor.ReplaceAllStringFunc(richHTML, func(anchor string) string {
+		m := reAnchor.FindStringSubmatch(anchor)
+		label := m[3]
+		target := strings.TrimSpace(html.UnescapeString(m[1] + m[2]))
+		visible := strings.TrimSpace(html.UnescapeString(reAnyTag.ReplaceAllString(label, "")))
+		switch {
+		case target == "":
+			return label
+		case visible == "" || visible == target:
+			return escapeHTML(target)
+		case isIPLiteral(visible) && strings.HasSuffix(target, "/"+visible):
+			return label
+		}
+		return label + " (" + escapeHTML(target) + ")"
+	})
+}
+
+func isIPLiteral(s string) bool {
+	_, err := netip.ParseAddr(s)
+	return err == nil
+}
+
 func plainText(richHTML string) string {
-	s := reButtonRow.ReplaceAllString(richHTML, "")
+	s := expandLinks(richHTML)
 	s = reCellBreak.ReplaceAllString(s, "  ")
 	s = reBlockBreak.ReplaceAllString(s, "\n")
 	s = reAnyTag.ReplaceAllString(s, "")

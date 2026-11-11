@@ -3,6 +3,7 @@ package telegram
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -32,6 +33,7 @@ type fakeAPI struct {
 	calls      []apiCall
 	rejectRich bool
 	rejectEdit bool
+	username   string
 }
 
 func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -64,6 +66,15 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch method {
+	case "getMe":
+		f.mu.Lock()
+		username := f.username
+		f.mu.Unlock()
+		if username == "" {
+			_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
+			return
+		}
+		_, _ = fmt.Fprintf(w, `{"ok":true,"result":{"id":123456,"is_bot":true,"first_name":"Limiter","username":%q}}`, username)
 	case "sendMessage", "sendRichMessage":
 		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":900,"date":1,"chat":{"id":1,"type":"private"}}}`))
 	case "editMessageText":
@@ -570,11 +581,6 @@ func TestAnswerCallback_SurvivesCancelledContext(t *testing.T) {
 	}
 }
 
-// Telegram не присылает типы обновлений, отсутствующие в сохранённом
-// allowed_updates (значение переживает рестарты и остаётся от прошлого
-// webhook/getUpdates). Без явного списка бот на «чужом» или ранее
-// использованном токене не получает callback_query, и кнопки молча не
-// работают. Бот обязан запрашивать callback_query на каждом poll.
 func TestStartPolling_RequestsCallbackQueryUpdates(t *testing.T) {
 	got := make(chan []string, 1)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -642,8 +648,351 @@ func TestStartPolling_RequestsCallbackQueryUpdates(t *testing.T) {
 		if !has["message"] {
 			t.Errorf("allowed_updates=%v, должен содержать message", allowed)
 		}
+		if len(allowed) != 2 {
+			t.Errorf("allowed_updates=%v: запрашиваться должны только обрабатываемые типы обновлений", allowed)
+		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("getUpdates не был вызван")
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("polling не остановился после отмены контекста")
+	}
+}
+
+func TestSendStartupMessage_HasStarButton(t *testing.T) {
+	b, fake := newTestBot(t, -100500, 0)
+	if err := b.SendStartupMessage(context.Background(), "<h3>start</h3>"); err != nil {
+		t.Fatalf("SendStartupMessage: %v", err)
+	}
+	calls := fake.find("sendRichMessage")
+	if len(calls) != 1 {
+		t.Fatalf("sendRichMessage вызван %d раз", len(calls))
+	}
+	html := richHTML(t, calls[0].fields)
+	want := `<tg-button type="url" url="https://github.com/syvlech/remnawave-limiter">⭐ Поставить звезду на GitHub</tg-button>`
+	if !strings.Contains(html, want) {
+		t.Errorf("нет кнопки со звездой:\n%s", html)
+	}
+	if got := buttonData(html); got != "cfg:menu,ui:stats" {
+		t.Errorf("кнопки настроек и статистики должны остаться: %q", got)
+	}
+	assertBalancedHTML(t, html)
+}
+
+func TestSendUpdateNotice_LinksToRelease(t *testing.T) {
+	b, fake := newTestBot(t, -100500, 0)
+	const rel = "https://github.com/syvlech/remnawave-limiter/releases/tag/4.7.0"
+	if err := b.SendUpdateNotice(context.Background(), "4.6.0", "4.7.0", rel); err != nil {
+		t.Fatalf("SendUpdateNotice: %v", err)
+	}
+	calls := fake.find("sendRichMessage")
+	if len(calls) != 1 {
+		t.Fatalf("sendRichMessage вызван %d раз", len(calls))
+	}
+	html := richHTML(t, calls[0].fields)
+	for _, want := range []string{
+		"<h3>🆕 Доступна новая версия Remnawave Limiter</h3>",
+		row("📦 Текущая версия", "<code>4.6.0</code>"),
+		row("🆕 Новая версия", "<b><code>4.7.0</code></b>"),
+		"<code>docker compose pull &amp;&amp; docker compose up -d</code>",
+		`<tg-button type="url" url="` + rel + `">📝 Что нового</tg-button>`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("в уведомлении нет %q:\n%s", want, html)
+		}
+	}
+	assertBalancedHTML(t, html)
+}
+
+func TestDailyReport_StatsButtonSendsNewMessage(t *testing.T) {
+	b, fake := newTestBot(t, 100, 0)
+	b.SetStatsHandler(func(context.Context) (string, error) { return "<h3>stats</h3>", nil })
+
+	if err := b.SendDailyReport(context.Background(), "<h3>report</h3>"); err != nil {
+		t.Fatal(err)
+	}
+	sent := fake.find("sendRichMessage")
+	if len(sent) != 1 || buttonData(richHTML(t, sent[0].fields)) != "ui:stats:new" {
+		t.Fatalf("у отчёта должна быть одна кнопка статистики: %v", sent)
+	}
+
+	b.handleUpdate(context.Background(), nil, callbackUpdate(42, "ui:stats:new"))
+	if n := len(fake.find("editMessageText")); n != 0 {
+		t.Errorf("отчёт нельзя перезаписывать статистикой, editMessageText вызван %d раз", n)
+	}
+	if n := len(fake.find("sendRichMessage")); n != 2 {
+		t.Errorf("статистика должна прийти новым сообщением, sendRichMessage вызван %d раз", n)
+	}
+}
+
+func TestActionReport_UsesConfiguredLocation(t *testing.T) {
+	loc := time.FixedZone("TEST+9", 9*3600)
+	html := actionReport("drop", 77, "@admin", 0, loc).HTML
+	want := time.Now().In(loc).Format("02.01.2006 15:")
+	if !strings.Contains(html, want) {
+		t.Errorf("время действия должно быть в часовом поясе из TIMEZONE (%s): %s", want, html)
+	}
+}
+
+func TestEditRich_FallsBackToPlainText(t *testing.T) {
+	b, fake := newTestBot(t, 100, 0)
+	fake.rejectRich = true
+
+	m := richMsg{
+		HTML: `<h3>Меню</h3><p>a &amp; b · <a href="https://e.com/sub?x=1&amp;y=2">открыть</a></p>`,
+		Rows: [][]richButton{{cbButton("Назад", "cfg:menu", styleLink), urlButton("Сайт", "https://e.com")}},
+	}
+	if err := b.editRich(context.Background(), 100, 5, m); err != nil {
+		t.Fatalf("editRich: %v", err)
+	}
+
+	edits := fake.find("editMessageText")
+	if len(edits) != 2 {
+		t.Fatalf("ожидались rich-попытка и запасное редактирование, editMessageText вызван %d раз", len(edits))
+	}
+	if edits[0].fields["rich_message"] == "" {
+		t.Errorf("первая попытка должна быть rich-сообщением: %v", edits[0].fields)
+	}
+	f := edits[1].fields
+	if f["chat_id"] != "100" || f["message_id"] != "5" {
+		t.Errorf("редактируется не то сообщение: %v", f)
+	}
+	if f["rich_message"] != "" || f["parse_mode"] != "" {
+		t.Errorf("запасное редактирование идёт обычным текстом без разметки: %v", f)
+	}
+	if want := "Меню\na & b · открыть (https://e.com/sub?x=1&y=2)"; f["text"] != want {
+		t.Errorf("текст запасного редактирования %q, ожидалось %q", f["text"], want)
+	}
+	if want := `{"inline_keyboard":[[{"text":"Назад","callback_data":"cfg:menu"},{"text":"Сайт","url":"https://e.com"}]]}`; f["reply_markup"] != want {
+		t.Errorf("кнопки должны перейти в inline-клавиатуру: %s", f["reply_markup"])
+	}
+	if len(fake.find("sendMessage"))+len(fake.find("sendRichMessage")) != 0 {
+		t.Error("при удачном запасном редактировании новое сообщение не отправляется")
+	}
+}
+
+func TestEditRich_PlainFallbackRejectedReturnsBadRequest(t *testing.T) {
+	b, fake := newTestBot(t, 100, 0)
+	fake.rejectEdit = true
+
+	err := b.editRich(context.Background(), 100, 5, richMsg{HTML: "<p>x</p>"})
+	if !errors.Is(err, tgbot.ErrorBadRequest) {
+		t.Fatalf("ожидалась ошибка Bad Request, получено %v", err)
+	}
+	if n := len(fake.find("editMessageText")); n != 2 {
+		t.Errorf("editMessageText вызван %d раз, ожидалось 2", n)
+	}
+}
+
+func TestSplitCommand(t *testing.T) {
+	cases := []struct {
+		text, name, target string
+		addressed          bool
+	}{
+		{"/settings", "/settings", "", false},
+		{"  /stats  ", "/stats", "", false},
+		{"/stats arg", "/stats", "", false},
+		{"/stats\narg", "/stats", "", false},
+		{"/settings@LimiterBot now", "/settings", "LimiterBot", true},
+		{"/settings@", "/settings", "", true},
+		{"45", "", "", false},
+		{"see /settings", "", "", false},
+		{"mail@example.com", "", "", false},
+		{"", "", "", false},
+	}
+	for _, c := range cases {
+		name, target, addressed := splitCommand(c.text)
+		if name != c.name || target != c.target || addressed != c.addressed {
+			t.Errorf("splitCommand(%q) = %q, %q, %v; ожидалось %q, %q, %v", c.text, name, target, addressed, c.name, c.target, c.addressed)
+		}
+	}
+}
+
+func commandBot(t *testing.T, username string) (*Bot, *fakeAPI, *int) {
+	t.Helper()
+	b, fake := newTestBot(t, -100500, 0)
+	fake.username = username
+	b.SetSettingsProvider(newFakeSettings())
+	stats := 0
+	b.SetStatsHandler(func(context.Context) (string, error) {
+		stats++
+		return "<h3>stats</h3>", nil
+	})
+	return b, fake, &stats
+}
+
+func groupMessage(text string, id int) *models.Update {
+	return chatMessage(-100500, models.ChatTypeSupergroup, text, id)
+}
+
+func TestCommands_AddressedToThisBot(t *testing.T) {
+	b, fake, stats := commandBot(t, "LimiterBot")
+
+	for i, text := range []string{"/settings@LimiterBot", "/settings@limiterbot", "/settings", "/settings@LIMITERBOT now", "/settings now"} {
+		b.handleUpdate(context.Background(), nil, groupMessage(text, 10+i))
+	}
+	if n := len(fake.find("sendRichMessage")); n != 5 {
+		t.Errorf("меню настроек должно открыться 5 раз, открыто %d", n)
+	}
+
+	for i, text := range []string{"/stats@LimiterBot", "/stats", "/stats arg", "/stats@limiterBOT 7d"} {
+		b.handleUpdate(context.Background(), nil, groupMessage(text, 20+i))
+	}
+	if *stats != 4 {
+		t.Errorf("статистика должна быть запрошена 4 раза, запрошена %d", *stats)
+	}
+	if n := len(fake.find("getMe")); n != 1 {
+		t.Errorf("имя бота запрашивается один раз, getMe вызван %d раз", n)
+	}
+}
+
+func TestCommands_AddressedToOtherBotIgnored(t *testing.T) {
+	b, fake, stats := commandBot(t, "LimiterBot")
+	b.setPending(42, "CHECK_INTERVAL", -100500, 5)
+
+	for i, text := range []string{"/settings@SomeOtherBot", "/stats@OtherBot", "/stats@OtherBot arg", "/settings@LimiterBotX", "/settings@"} {
+		b.handleUpdate(context.Background(), nil, groupMessage(text, 10+i))
+	}
+
+	if n := len(fake.find("sendRichMessage")) + len(fake.find("sendMessage")) + len(fake.find("editMessageText")); n != 0 {
+		t.Errorf("команды другому боту не должны обрабатываться, отправлено сообщений: %d", n)
+	}
+	if *stats != 0 {
+		t.Errorf("статистика не должна запрашиваться, запрошена %d раз", *stats)
+	}
+	if n := len(fake.find("deleteMessage")); n != 0 {
+		t.Errorf("чужие команды не должны удаляться как введённое значение, deleteMessage вызван %d раз", n)
+	}
+	if _, ok := b.pendingFor(42); !ok {
+		t.Error("чужая команда не должна сбрасывать ожидание ввода")
+	}
+}
+
+func TestCommands_OtherBotIgnoredInPrivateChatWithPendingInput(t *testing.T) {
+	b, fake, _ := newSettingsBot(t)
+	fake.username = "LimiterBot"
+	b.handleUpdate(context.Background(), nil, callbackUpdate(42, "cfg:edit:CHECK_INTERVAL"))
+	before := len(fake.find("editMessageText"))
+
+	b.handleUpdate(context.Background(), nil, adminMessage("/stats@OtherBot", 10))
+
+	if n := len(fake.find("deleteMessage")); n != 0 {
+		t.Errorf("команда другому боту не должна считаться введённым значением, deleteMessage вызван %d раз", n)
+	}
+	if n := len(fake.find("editMessageText")); n != before {
+		t.Errorf("экран редактирования не должен перерисовываться, editMessageText вызван ещё %d раз", n-before)
+	}
+	if _, ok := b.pendingFor(42); !ok {
+		t.Error("ожидание ввода должно сохраниться")
+	}
+}
+
+func TestCommands_UnknownUsernameAcceptsOnlyBareForm(t *testing.T) {
+	b, fake, stats := commandBot(t, "")
+
+	b.handleUpdate(context.Background(), nil, groupMessage("/settings@LimiterBot", 10))
+	b.handleUpdate(context.Background(), nil, groupMessage("/stats@LimiterBot", 11))
+	if n := len(fake.find("sendRichMessage")); n != 0 || *stats != 0 {
+		t.Fatalf("пока имя бота неизвестно, команды с @ игнорируются: сообщений %d, статистика %d", n, *stats)
+	}
+	if n := len(fake.find("getMe")); n != 1 {
+		t.Errorf("повторный запрос имени должен быть не чаще раза в минуту, getMe вызван %d раз", n)
+	}
+
+	b.handleUpdate(context.Background(), nil, groupMessage("/settings", 12))
+	b.handleUpdate(context.Background(), nil, groupMessage("/stats", 13))
+	if n := len(fake.find("sendRichMessage")); n != 2 || *stats != 1 {
+		t.Errorf("команды без @ должны работать и без имени бота: сообщений %d, статистика %d", n, *stats)
+	}
+}
+
+func TestCommands_UsernameIsRetriedAfterInterval(t *testing.T) {
+	b, fake, _ := commandBot(t, "")
+
+	b.handleUpdate(context.Background(), nil, groupMessage("/settings@LimiterBot", 10))
+	if n := len(fake.find("sendRichMessage")); n != 0 {
+		t.Fatalf("имя бота неизвестно, меню открываться не должно: %d", n)
+	}
+
+	fake.mu.Lock()
+	fake.username = "LimiterBot"
+	fake.mu.Unlock()
+	b.meMu.Lock()
+	b.usernameAsked = time.Now().Add(-2 * usernameRetryInterval)
+	b.meMu.Unlock()
+
+	b.handleUpdate(context.Background(), nil, groupMessage("/settings@LimiterBot", 11))
+	if n := len(fake.find("sendRichMessage")); n != 1 {
+		t.Errorf("после повторного getMe команда должна обрабатываться, sendRichMessage вызван %d раз", n)
+	}
+	if n := len(fake.find("getMe")); n != 2 {
+		t.Errorf("getMe вызван %d раз, ожидалось 2", n)
+	}
+}
+
+func TestCommands_NonAdminIgnored(t *testing.T) {
+	b, fake, stats := commandBot(t, "LimiterBot")
+
+	for i, text := range []string{"/settings", "/stats", "/settings@LimiterBot"} {
+		u := groupMessage(text, 10+i)
+		u.Message.From.ID = 7
+		b.handleUpdate(context.Background(), nil, u)
+	}
+	fake.mu.Lock()
+	n := len(fake.calls)
+	fake.mu.Unlock()
+	if n != 0 || *stats != 0 {
+		t.Errorf("команды не-админа не должны вызывать API: вызовов %d, статистика %d", n, *stats)
+	}
+}
+
+func TestStartPolling_LearnsUsername(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/getMe"):
+			_, _ = w.Write([]byte(`{"ok":true,"result":{"id":123456,"is_bot":true,"first_name":"L","username":"LimiterBot"}}`))
+		case strings.HasSuffix(r.URL.Path, "/getUpdates"):
+			select {
+			case <-r.Context().Done():
+			case <-time.After(100 * time.Millisecond):
+			}
+			_, _ = w.Write([]byte(`{"ok":true,"result":[]}`))
+		default:
+			_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
+		}
+	}))
+	defer srv.Close()
+
+	logger := logrus.New()
+	logger.SetOutput(io.Discard)
+	b, err := newBot(testToken, 100, 0, []int64{42}, "", logger, tgbot.WithServerURL(srv.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		b.StartPolling(ctx)
+		close(done)
+	}()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		b.meMu.Lock()
+		got := b.username
+		b.meMu.Unlock()
+		if got == "LimiterBot" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("имя бота не получено при запуске polling: %q", got)
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 
 	cancel()

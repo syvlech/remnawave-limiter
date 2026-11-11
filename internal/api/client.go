@@ -4,24 +4,29 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"github.com/remnawave/limiter/internal/i18n"
 	"io"
 	"math/rand/v2"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/remnawave/limiter/internal/i18n"
 )
 
 const (
 	maxRetries        = 3
 	initialBackoff    = 1 * time.Second
 	maxBackoff        = 30 * time.Second
+	maxRetryAfter     = 24 * time.Hour
 	jobFirstPollDelay = 300 * time.Millisecond
 	jobPollInterval   = 1 * time.Second
 	jobPollMaxTries   = 30
@@ -40,6 +45,11 @@ type Client struct {
 	headers    map[string]string
 
 	backoff time.Duration
+
+	pollFirstDelay time.Duration
+	pollInterval   time.Duration
+	pollMaxTries   int
+	maxRespBytes   int64
 }
 
 func newTransport() *http.Transport {
@@ -69,12 +79,30 @@ func NewClient(baseURL, token string) *Client {
 		baseURL: strings.TrimRight(baseURL, "/"),
 		token:   token,
 		httpClient: &http.Client{
-			Timeout:   30 * time.Second,
-			Transport: newTransport(),
+			Timeout:       30 * time.Second,
+			Transport:     newTransport(),
+			CheckRedirect: KeepMethodOnRedirect,
 		},
 		logger:  discardLogger(),
 		backoff: initialBackoff,
+
+		pollFirstDelay: jobFirstPollDelay,
+		pollInterval:   jobPollInterval,
+		pollMaxTries:   jobPollMaxTries,
+		maxRespBytes:   maxResponseBytes,
 	}
+}
+
+const maxRedirects = 10
+
+func KeepMethodOnRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= maxRedirects {
+		return fmt.Errorf("stopped after %d redirects", maxRedirects)
+	}
+	if req.Method != via[0].Method {
+		return http.ErrUseLastResponse
+	}
+	return nil
 }
 
 func (c *Client) SetLogger(logger *logrus.Logger) {
@@ -98,25 +126,71 @@ func ParseHeaders(headerStr string) map[string]string {
 	}
 
 	headers := make(map[string]string)
-	for _, part := range strings.Split(headerStr, ";") {
-		part = strings.TrimSpace(part)
-		if part == "" {
+	last := ""
+	for _, part := range splitHeaderList(headerStr) {
+		trimmed := strings.TrimSpace(part)
+		if trimmed == "" {
 			continue
 		}
-		kv := strings.SplitN(part, ":", 2)
-		if len(kv) != 2 {
+		name, value, ok := strings.Cut(trimmed, ":")
+		name = strings.TrimSpace(name)
+		if !ok || !validHeaderName(name) {
+			if last != "" {
+				headers[last] += ";" + strings.TrimRight(part, " \t")
+			}
 			continue
 		}
-		name := strings.TrimSpace(kv[0])
-		if name == "" {
-			continue
-		}
-		headers[name] = strings.TrimSpace(kv[1])
+		headers[name] = strings.TrimSpace(value)
+		last = name
 	}
 	if len(headers) == 0 {
 		return nil
 	}
 	return headers
+}
+
+func splitHeaderList(s string) []string {
+	var parts []string
+	var cur strings.Builder
+	depth := 0
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		switch {
+		case ch == '\\' && i+1 < len(s) && s[i+1] == ';':
+			cur.WriteByte(';')
+			i++
+		case ch == '(':
+			depth++
+			cur.WriteByte(ch)
+		case ch == ')':
+			if depth > 0 {
+				depth--
+			}
+			cur.WriteByte(ch)
+		case ch == ';' && depth == 0:
+			parts = append(parts, cur.String())
+			cur.Reset()
+		default:
+			cur.WriteByte(ch)
+		}
+	}
+	return append(parts, cur.String())
+}
+
+func validHeaderName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for i := 0; i < len(name); i++ {
+		ch := name[i]
+		switch {
+		case ch >= 'a' && ch <= 'z', ch >= 'A' && ch <= 'Z', ch >= '0' && ch <= '9':
+		case strings.IndexByte("!#$%&'*+-.^_`|~", ch) >= 0:
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func ParseCookies(cookieStr string) []*http.Cookie {
@@ -147,11 +221,69 @@ func truncateBody(body []byte) string {
 	if len(s) <= maxErrBodyLen {
 		return s
 	}
-	return s[:maxErrBodyLen] + "… (обрезано)"
+	return s[:maxErrBodyLen] + i18n.T("error.api.truncated")
 }
 
 func retryableStatus(code int) bool {
 	return code >= 500 || code == http.StatusTooManyRequests || code == http.StatusRequestTimeout
+}
+
+type retryPolicy int
+
+const (
+	retryTransient retryPolicy = iota
+	retryUnsent
+)
+
+func (p retryPolicy) retryStatus(code int) bool {
+	if p == retryUnsent {
+		return code == http.StatusTooManyRequests || code == http.StatusServiceUnavailable
+	}
+	return retryableStatus(code)
+}
+
+type attemptError struct {
+	err       error
+	permanent bool
+	sent      bool
+}
+
+func (e *attemptError) Error() string { return e.err.Error() }
+
+func (e *attemptError) Unwrap() error { return e.err }
+
+func (p retryPolicy) retryError(err error) bool {
+	var ae *attemptError
+	if !errors.As(err, &ae) {
+		return true
+	}
+	if ae.permanent {
+		return false
+	}
+	return p != retryUnsent || !ae.sent
+}
+
+func validHeaderValue(v string) bool {
+	for i := 0; i < len(v); i++ {
+		if ch := v[i]; (ch < ' ' && ch != '\t') || ch == 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
+func checkHeaders(h http.Header) error {
+	for name, values := range h {
+		if !validHeaderName(name) {
+			return fmt.Errorf("invalid header field name %q", name)
+		}
+		for _, v := range values {
+			if !validHeaderValue(v) {
+				return fmt.Errorf("invalid header field value for %q", name)
+			}
+		}
+	}
+	return nil
 }
 
 func retryAfter(h http.Header) time.Duration {
@@ -162,6 +294,9 @@ func retryAfter(h http.Header) time.Duration {
 	if secs, err := strconv.Atoi(v); err == nil {
 		if secs < 0 {
 			return 0
+		}
+		if secs > int(maxRetryAfter/time.Second) {
+			return maxRetryAfter
 		}
 		return time.Duration(secs) * time.Second
 	}
@@ -182,6 +317,10 @@ func jitter(d time.Duration) time.Duration {
 }
 
 func (c *Client) doRequest(ctx context.Context, method, path string, body interface{}) ([]byte, error) {
+	return c.doRequestWith(ctx, retryTransient, method, path, body)
+}
+
+func (c *Client) doRequestWith(ctx context.Context, policy retryPolicy, method, path string, body interface{}) ([]byte, error) {
 	var bodyData []byte
 	if body != nil {
 		data, err := json.Marshal(body)
@@ -193,10 +332,15 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body interf
 
 	var lastErr error
 	backoff := c.backoff
+	var serverWait time.Duration
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
 			wait := jitter(backoff)
+			if serverWait > 0 {
+				wait = serverWait + time.Duration(rand.Float64()*0.25*float64(serverWait))
+				serverWait = 0
+			}
 			c.logger.WithFields(logrus.Fields{
 				"method":  method,
 				"path":    path,
@@ -222,20 +366,25 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body interf
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
 			}
+			if !policy.retryError(err) {
+				return nil, fmt.Errorf("API %s %s: %w", method, path, err)
+			}
 			lastErr = err
 			continue
 		}
 
-		if retryableStatus(status) {
-			lastErr = fmt.Errorf("API %s %s returned status %d: %s", method, path, status, truncateBody(respBody))
-			if d := retryAfter(header); d > 0 && d <= maxBackoff {
-				backoff = d
+		if policy.retryStatus(status) {
+			lastErr = &StatusError{Method: method, Path: path, Code: status, Body: truncateBody(respBody)}
+			if d := retryAfter(header); d > maxBackoff {
+				return nil, fmt.Errorf("API %s %s asked to retry after %s: %w", method, path, d.Round(time.Second), lastErr)
+			} else if d > 0 {
+				serverWait = d
 			}
 			continue
 		}
 
 		if status < 200 || status >= 300 {
-			return nil, fmt.Errorf("API %s %s returned status %d: %s", method, path, status, truncateBody(respBody))
+			return nil, &StatusError{Method: method, Path: path, Code: status, Body: truncateBody(respBody)}
 		}
 
 		return respBody, nil
@@ -244,45 +393,87 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body interf
 	return nil, fmt.Errorf("API %s %s failed after %d retries: %w", method, path, maxRetries, lastErr)
 }
 
+type StatusError struct {
+	Method string
+	Path   string
+	Code   int
+	Body   string
+}
+
+func (e *StatusError) Error() string {
+	return fmt.Sprintf("API %s %s returned status %d: %s", e.Method, e.Path, e.Code, e.Body)
+}
+
+const (
+	panelErrAlreadyDisabled = "A029"
+	panelErrAlreadyEnabled  = "A030"
+)
+
+func hasPanelError(err error, code string) bool {
+	var se *StatusError
+	return errors.As(err, &se) && se.Code == http.StatusBadRequest && strings.Contains(se.Body, `"`+code+`"`)
+}
+
+func IsAlreadyDisabled(err error) bool { return hasPanelError(err, panelErrAlreadyDisabled) }
+
+func IsAlreadyEnabled(err error) bool { return hasPanelError(err, panelErrAlreadyEnabled) }
+
 func (c *Client) attempt(ctx context.Context, method, path string, bodyData []byte) ([]byte, int, http.Header, error) {
 	var reqBody io.Reader
 	if bodyData != nil {
 		reqBody = bytes.NewReader(bodyData)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, reqBody)
+	var gotConn atomic.Bool
+	traceCtx := httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+		GotConn: func(httptrace.GotConnInfo) { gotConn.Store(true) },
+	})
+
+	req, err := http.NewRequestWithContext(traceCtx, method, c.baseURL+path, reqBody)
 	if err != nil {
-		return nil, 0, nil, fmt.Errorf("create request: %w", err)
+		return nil, 0, nil, &attemptError{err: fmt.Errorf("create request: %w", err), permanent: true}
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 
 	for name, value := range c.headers {
+		if strings.EqualFold(name, "Host") {
+			req.Host = value
+			continue
+		}
 		req.Header.Set(name, value)
 	}
 	for _, cookie := range c.cookies {
 		req.AddCookie(cookie)
 	}
 
+	if err := checkHeaders(req.Header); err != nil {
+		return nil, 0, nil, &attemptError{err: fmt.Errorf("create request: %w", err), permanent: true}
+	}
+
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, 0, nil, fmt.Errorf("http request: %w", err)
+		return nil, 0, nil, &attemptError{err: fmt.Errorf("http request: %w", err), sent: gotConn.Load()}
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, c.maxRespBytes+1))
 	if err != nil {
-		return nil, 0, nil, fmt.Errorf("read response body: %w", err)
+		return nil, 0, nil, &attemptError{err: fmt.Errorf("read response body: %w", err), sent: true}
 	}
-	if len(respBody) > maxResponseBytes {
-		return nil, 0, nil, fmt.Errorf("ответ панели больше %d байт — отброшен", maxResponseBytes)
+	if int64(len(respBody)) > c.maxRespBytes {
+		return nil, 0, nil, &attemptError{
+			err:       fmt.Errorf(i18n.T("error.api.response_too_large"), c.maxRespBytes),
+			permanent: true,
+			sent:      true,
+		}
 	}
 
 	return respBody, resp.StatusCode, resp.Header, nil
 }
 
-func (c *Client) GetActiveNodes(ctx context.Context) ([]Node, error) {
+func (c *Client) GetNodes(ctx context.Context) ([]Node, error) {
 	data, err := c.doRequest(ctx, http.MethodGet, "/api/nodes", nil)
 	if err != nil {
 		return nil, fmt.Errorf("get nodes: %w", err)
@@ -292,23 +483,31 @@ func (c *Client) GetActiveNodes(ctx context.Context) ([]Node, error) {
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return nil, fmt.Errorf("decode nodes response: %w", err)
 	}
+	return resp.Response, nil
+}
 
-	active := make([]Node, 0, len(resp.Response))
-	for _, node := range resp.Response {
+func (c *Client) GetActiveNodes(ctx context.Context) ([]Node, error) {
+	all, err := c.GetNodes(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	active := make([]Node, 0, len(all))
+	for _, node := range all {
 		if node.IsConnected && !node.IsDisabled {
 			active = append(active, node)
 		}
 	}
 
 	c.logger.WithFields(logrus.Fields{
-		"total":  len(resp.Response),
+		"total":  len(all),
 		"active": len(active),
 	}).Debug(i18n.T("log.nodes_received"))
 	return active, nil
 }
 
 func (c *Client) FetchUsersIPs(ctx context.Context, nodeUUID string) ([]UserIPEntry, error) {
-	data, err := c.doRequest(ctx, http.MethodPost, "/api/connections/by-node/"+url.PathEscape(nodeUUID), nil)
+	data, err := c.doRequestWith(ctx, retryUnsent, http.MethodPost, "/api/connections/by-node/"+url.PathEscape(nodeUUID), nil)
 	if err != nil {
 		return nil, fmt.Errorf("start connections/by-node job: %w", err)
 	}
@@ -329,15 +528,15 @@ func (c *Client) FetchUsersIPs(ctx context.Context, nodeUUID string) ([]UserIPEn
 	}).Debug(i18n.T("log.job_started"))
 
 	started := time.Now()
-	delay := jobFirstPollDelay
+	delay := c.pollFirstDelay
 
-	for i := 0; i < jobPollMaxTries; i++ {
+	for i := 0; i < c.pollMaxTries; i++ {
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case <-time.After(delay):
 		}
-		delay = jobPollInterval
+		delay = c.pollInterval
 
 		data, err := c.doRequest(ctx, http.MethodGet, "/api/connections/by-node/"+url.PathEscape(jobID), nil)
 		if err != nil {
@@ -371,7 +570,7 @@ func (c *Client) FetchUsersIPs(ctx context.Context, nodeUUID string) ([]UserIPEn
 		}
 	}
 
-	return nil, fmt.Errorf("job %s timed out after %d polls (%s)", jobID, jobPollMaxTries, time.Since(started).Truncate(time.Second))
+	return nil, fmt.Errorf("job %s timed out after %d polls (%s)", jobID, c.pollMaxTries, time.Since(started).Truncate(time.Second))
 }
 
 func (c *Client) GetUserByID(ctx context.Context, userID int64) (*UserData, error) {
@@ -424,4 +623,45 @@ func (c *Client) DropConnections(ctx context.Context, userIDs []int64) error {
 		return fmt.Errorf("drop connections: %w", err)
 	}
 	return nil
+}
+
+func (c *Client) GetUserHWIDDevices(ctx context.Context, userID int64) ([]HWIDDevice, error) {
+	data, err := c.doRequest(ctx, http.MethodGet, "/api/hwid/devices/"+strconv.FormatInt(userID, 10), nil)
+	if err != nil {
+		return nil, fmt.Errorf("get hwid devices %d: %w", userID, err)
+	}
+	var resp HWIDDevicesResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, fmt.Errorf("decode hwid devices: %w", err)
+	}
+	return resp.Response.Devices, nil
+}
+
+func (c *Client) GetUserSubscriptionHistory(ctx context.Context, userID int64) ([]SubscriptionRequest, error) {
+	data, err := c.doRequest(ctx, http.MethodGet, "/api/users/"+strconv.FormatInt(userID, 10)+"/subscription-request-history", nil)
+	if err != nil {
+		return nil, fmt.Errorf("get subscription history %d: %w", userID, err)
+	}
+	var resp SubscriptionHistoryResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, fmt.Errorf("decode subscription history: %w", err)
+	}
+	return resp.Response.Records, nil
+}
+
+func (c *Client) GetNodesUsage(ctx context.Context, nodeUUIDs []string, day string, minBytes int64) ([]NodeUsage, error) {
+	q := url.Values{}
+	q.Set("start", day)
+	q.Set("end", day)
+	q.Set("minTotalBytes", strconv.FormatInt(minBytes, 10))
+	data, err := c.doRequest(ctx, http.MethodPost, "/api/bandwidth-stats/nodes/usage?"+q.Encode(),
+		NodesUsageRequest{NodesUUIDs: nodeUUIDs})
+	if err != nil {
+		return nil, fmt.Errorf("get nodes usage %s: %w", day, err)
+	}
+	var resp NodesUsageResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, fmt.Errorf("decode nodes usage: %w", err)
+	}
+	return resp.Response.Nodes, nil
 }

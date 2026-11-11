@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/remnawave/limiter/internal/i18n"
 )
 
 type Kind int
@@ -40,6 +42,12 @@ var registry = []Field{
 	{Key: "SUBNET_PREFIX_V4", TitleKey: "setting.SUBNET_PREFIX_V4", Kind: KindInt},
 	{Key: "ASN_GROUPING", TitleKey: "setting.ASN_GROUPING", Kind: KindBool, Allowed: []string{"true", "false"}},
 	{Key: "DAILY_REPORT", TitleKey: "setting.DAILY_REPORT", Kind: KindBool, Allowed: []string{"true", "false"}},
+	{Key: "UPDATE_CHECK", TitleKey: "setting.UPDATE_CHECK", Kind: KindBool, Allowed: []string{"true", "false"}},
+	{Key: "TRAFFIC_MONITOR", TitleKey: "setting.TRAFFIC_MONITOR", Kind: KindBool, Allowed: []string{"true", "false"}},
+	{Key: "TRAFFIC_SPIKE_FACTOR", TitleKey: "setting.TRAFFIC_SPIKE_FACTOR", Kind: KindFloat},
+	{Key: "TRAFFIC_SPIKE_MIN_GB", TitleKey: "setting.TRAFFIC_SPIKE_MIN_GB", Kind: KindInt},
+	{Key: "TRAFFIC_HEAVY_GB", TitleKey: "setting.TRAFFIC_HEAVY_GB", Kind: KindInt},
+	{Key: "TRAFFIC_HEAVY_DAYS", TitleKey: "setting.TRAFFIC_HEAVY_DAYS", Kind: KindInt},
 	{Key: "LOG_LEVEL", TitleKey: "setting.LOG_LEVEL", Kind: KindEnum, Allowed: LogLevels},
 }
 
@@ -66,17 +74,17 @@ func IsEditable(key string) bool {
 func ValidateRaw(key, raw string) error {
 	f, ok := FieldByKey(key)
 	if !ok {
-		return fmt.Errorf("параметр %q нельзя менять из бота", key)
+		return fmt.Errorf(i18n.T("error.config.not_editable"), key)
 	}
 	raw = strings.TrimSpace(raw)
 	switch f.Kind {
 	case KindInt:
 		if _, err := strconv.Atoi(raw); err != nil {
-			return fmt.Errorf("ожидается целое число, получено %q", raw)
+			return fmt.Errorf(i18n.T("error.config.expect_int_got"), raw)
 		}
 	case KindFloat:
 		if _, err := strconv.ParseFloat(raw, 64); err != nil {
-			return fmt.Errorf("ожидается число, получено %q", raw)
+			return fmt.Errorf(i18n.T("error.config.expect_number_got"), raw)
 		}
 	case KindBool, KindEnum:
 		for _, allowed := range f.Allowed {
@@ -84,7 +92,7 @@ func ValidateRaw(key, raw string) error {
 				return nil
 			}
 		}
-		return fmt.Errorf("ожидается одно из %v, получено %q", f.Allowed, raw)
+		return fmt.Errorf(i18n.T("error.config.expect_one_of"), f.Allowed, raw)
 	}
 	return nil
 }
@@ -125,6 +133,18 @@ func Display(cfg *Config, key string) string {
 		return strconv.FormatBool(cfg.ASNGrouping)
 	case "DAILY_REPORT":
 		return strconv.FormatBool(cfg.DailyReport)
+	case "UPDATE_CHECK":
+		return strconv.FormatBool(cfg.UpdateCheck)
+	case "TRAFFIC_MONITOR":
+		return strconv.FormatBool(cfg.TrafficMonitor)
+	case "TRAFFIC_SPIKE_FACTOR":
+		return strconv.FormatFloat(cfg.TrafficSpikeFactor, 'g', -1, 64)
+	case "TRAFFIC_SPIKE_MIN_GB":
+		return strconv.Itoa(cfg.TrafficSpikeMinGB)
+	case "TRAFFIC_HEAVY_GB":
+		return strconv.Itoa(cfg.TrafficHeavyGB)
+	case "TRAFFIC_HEAVY_DAYS":
+		return strconv.Itoa(cfg.TrafficHeavyDays)
 	case "LOG_LEVEL":
 		return cfg.LogLevel
 	}

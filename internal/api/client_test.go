@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -426,5 +427,232 @@ func TestClient_TrimsTrailingSlashInBaseURL(t *testing.T) {
 	}
 	if path != "/api/nodes" {
 		t.Errorf("path = %q, want /api/nodes", path)
+	}
+}
+
+func TestClient_GetUserHWIDDevices(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/hwid/devices/42" {
+			t.Errorf("неожиданный путь %s", r.URL.Path)
+		}
+		w.Write([]byte(`{"response":{"total":2,"devices":[
+			{"hwid":"abc123def456","userId":42,"platform":"iOS","osVersion":"18.1","deviceModel":"iPhone15,2","userAgent":"Happ/2.7.0","requestIp":"1.1.1.1","createdAt":"2026-11-01T10:00:00.000Z","updatedAt":"2026-11-11T09:30:00.000Z"},
+			{"hwid":"zzz999zzz999","userId":42,"platform":null,"osVersion":null,"deviceModel":null,"userAgent":null,"requestIp":null,"createdAt":"2026-11-02T10:00:00.000Z","updatedAt":"2026-11-02T10:00:00.000Z"}
+		]}}`))
+	}))
+	defer srv.Close()
+
+	devices, err := fastClient(srv.URL).GetUserHWIDDevices(context.Background(), 42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(devices) != 2 || devices[0].DeviceModel != "iPhone15,2" || devices[0].UpdatedAt.Hour() != 9 {
+		t.Fatalf("устройства разобраны неверно: %+v", devices)
+	}
+	if devices[1].Platform != "" || devices[1].UserAgent != "" {
+		t.Errorf("null в строковых полях должен давать пустую строку: %+v", devices[1])
+	}
+}
+
+func TestClient_GetUserSubscriptionHistory(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/users/42/subscription-request-history" {
+			t.Errorf("неожиданный путь %s", r.URL.Path)
+		}
+		w.Write([]byte(`{"response":{"total":1,"records":[
+			{"id":1,"userId":42,"requestAt":"2026-11-11T09:30:00.000Z","srrResponseType":"XRAY_BASE64","requestIp":"1.1.1.1","userAgent":"v2rayNG/1.9.30","srrRuleName":null}
+		]}}`))
+	}))
+	defer srv.Close()
+
+	records, err := fastClient(srv.URL).GetUserSubscriptionHistory(context.Background(), 42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].RequestIP != "1.1.1.1" || records[0].UserAgent != "v2rayNG/1.9.30" {
+		t.Fatalf("история разобрана неверно: %+v", records)
+	}
+}
+
+func TestClient_StatusErrorCarriesCode(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte(`{"message":"Forbidden resource"}`))
+	}))
+	defer srv.Close()
+
+	_, err := fastClient(srv.URL).GetUserHWIDDevices(context.Background(), 1)
+	var se *StatusError
+	if !errors.As(err, &se) || se.Code != http.StatusForbidden {
+		t.Fatalf("ожидалась StatusError с кодом 403, получено %v", err)
+	}
+	if !strings.Contains(err.Error(), "returned status 403") {
+		t.Errorf("текст ошибки должен остаться прежним: %v", err)
+	}
+}
+
+func TestClient_GetNodesUsage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/bandwidth-stats/nodes/usage" {
+			t.Errorf("неожиданный запрос %s %s", r.Method, r.URL.Path)
+		}
+		q := r.URL.Query()
+		if q.Get("start") != "2026-11-12" || q.Get("end") != "2026-11-12" || q.Get("minTotalBytes") != "3221225472" {
+			t.Errorf("неверные параметры: %s", r.URL.RawQuery)
+		}
+		var body NodesUsageRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.NodesUUIDs) != 2 {
+			t.Errorf("тело запроса: %+v, %v", body, err)
+		}
+		w.Write([]byte(`{"response":{"nodes":[{"uuid":"n1","users":[{"id":42,"totalBytes":10737418240}]},{"uuid":"n2","users":[]}]}}`))
+	}))
+	defer srv.Close()
+
+	nodes, err := fastClient(srv.URL).GetNodesUsage(context.Background(), []string{"n1", "n2"}, "2026-11-12", 3<<30)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nodes) != 2 || nodes[0].Users[0].ID != 42 || nodes[0].Users[0].TotalBytes != 10<<30 {
+		t.Errorf("ответ разобран неверно: %+v", nodes)
+	}
+}
+
+func TestClient_GetNodesIncludesDisconnected(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"response":[{"uuid":"a","isConnected":true},{"uuid":"b","isConnected":false,"isDisabled":true}]}`))
+	}))
+	defer srv.Close()
+	c := fastClient(srv.URL)
+	all, err := c.GetNodes(context.Background())
+	if err != nil || len(all) != 2 {
+		t.Fatalf("GetNodes должен вернуть все ноды: %v, %v", all, err)
+	}
+	active, err := c.GetActiveNodes(context.Background())
+	if err != nil || len(active) != 1 || active[0].UUID != "a" {
+		t.Errorf("GetActiveNodes по-прежнему только подключённые: %v, %v", active, err)
+	}
+}
+
+func TestParseHeaders(t *testing.T) {
+	const ua = "Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/115.0"
+	got := ParseHeaders("User-Agent: " + ua + "; X-Api-Key: secret123 ;Cookie: a=1; b=2; X-Note: one\\; two")
+	want := map[string]string{
+		"User-Agent": ua,
+		"X-Api-Key":  "secret123",
+		"Cookie":     "a=1; b=2",
+		"X-Note":     "one; two",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("заголовков %d, ожидалось %d: %v", len(got), len(want), got)
+	}
+	for name, value := range want {
+		if got[name] != value {
+			t.Errorf("%s = %q, ожидалось %q", name, got[name], value)
+		}
+	}
+	if ParseHeaders("") != nil || ParseHeaders(" ; ") != nil {
+		t.Error("пустая строка не должна давать заголовков")
+	}
+}
+
+func TestClient_RedirectDoesNotTurnPostIntoGet(t *testing.T) {
+	var methods []string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/users/42/actions/disable", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/moved", http.StatusFound)
+	})
+	mux.HandleFunc("/api/users/43/actions/disable", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/moved", http.StatusPermanentRedirect)
+	})
+	mux.HandleFunc("/moved", func(w http.ResponseWriter, r *http.Request) {
+		methods = append(methods, r.Method)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"response":{}}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	c := NewClient(srv.URL, "test-token")
+
+	err := c.DisableUser(context.Background(), 42)
+	var se *StatusError
+	if !errors.As(err, &se) || se.Code != http.StatusFound {
+		t.Fatalf("302 на POST должен вернуться как ошибка со статусом 302, получено: %v", err)
+	}
+	if len(methods) != 0 {
+		t.Fatalf("POST не должен превращаться в GET: %v", methods)
+	}
+
+	if err := c.DisableUser(context.Background(), 43); err != nil {
+		t.Fatalf("308 сохраняет метод и должен выполняться: %v", err)
+	}
+	if len(methods) != 1 || methods[0] != http.MethodPost {
+		t.Errorf("после 308 ожидался один POST, получено %v", methods)
+	}
+}
+
+func TestIsAlreadyDisabledAndEnabled(t *testing.T) {
+	disabled := fmt.Errorf("disable user 7: %w", &StatusError{Method: "POST", Path: "/x", Code: 400, Body: `{"message":"User already disabled","errorCode":"A029"}`})
+	enabled := &StatusError{Method: "POST", Path: "/x", Code: 400, Body: `{"message":"User already enabled","errorCode":"A030"}`}
+	if !IsAlreadyDisabled(disabled) || IsAlreadyEnabled(disabled) {
+		t.Error("A029 — это «уже отключён»")
+	}
+	if !IsAlreadyEnabled(enabled) || IsAlreadyDisabled(enabled) {
+		t.Error("A030 — это «уже включён»")
+	}
+	other := &StatusError{Method: "POST", Path: "/x", Code: 404, Body: `{"errorCode":"A029"}`}
+	if IsAlreadyDisabled(other) || IsAlreadyDisabled(errors.New("A029")) || IsAlreadyDisabled(nil) {
+		t.Error("другие ошибки не должны считаться «уже отключён»")
+	}
+}
+
+func TestClient_LongRetryAfterStopsRetries(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Retry-After", "120")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	started := time.Now()
+	_, err := fastClient(srv.URL).GetActiveNodes(context.Background())
+	var se *StatusError
+	if !errors.As(err, &se) || se.Code != http.StatusTooManyRequests {
+		t.Fatalf("ожидалась ошибка 429, получено %v", err)
+	}
+	if calls != 1 {
+		t.Errorf("при Retry-After больше предела повторов быть не должно, запросов %d", calls)
+	}
+	if time.Since(started) > 5*time.Second {
+		t.Errorf("клиент не должен ждать внутри окна лимита: %v", time.Since(started))
+	}
+}
+
+func TestClient_RetryAfterIsNotShortened(t *testing.T) {
+	var times []time.Time
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		times = append(times, time.Now())
+		if len(times) == 1 {
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.Write([]byte(`{"response":[]}`))
+	}))
+	defer srv.Close()
+
+	if _, err := fastClient(srv.URL).GetActiveNodes(context.Background()); err != nil {
+		t.Fatalf("expected success after 429 retry, got %v", err)
+	}
+	if len(times) != 2 || times[1].Sub(times[0]) < time.Second {
+		t.Errorf("повтор должен уйти не раньше, чем через Retry-After: %v", times)
+	}
+}
+
+func TestRetryAfter_HugeValueDoesNotOverflow(t *testing.T) {
+	h := http.Header{}
+	h.Set("Retry-After", "18446744074")
+	if d := retryAfter(h); d != maxRetryAfter {
+		t.Errorf("retryAfter = %v, ожидалось %v", d, maxRetryAfter)
 	}
 }

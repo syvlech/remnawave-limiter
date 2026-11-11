@@ -3,13 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/remnawave/limiter/internal/i18n"
 	"net/http"
 	"time"
 
 	"github.com/sirupsen/logrus"
 
 	"github.com/remnawave/limiter/internal/config"
+	"github.com/remnawave/limiter/internal/i18n"
 	"github.com/remnawave/limiter/internal/monitor"
 	"github.com/remnawave/limiter/internal/version"
 )

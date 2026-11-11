@@ -6,22 +6,27 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/remnawave/limiter/internal/cache"
 	"github.com/remnawave/limiter/internal/config"
 	"github.com/remnawave/limiter/internal/i18n"
 	"github.com/remnawave/limiter/internal/telegram"
 )
 
+type overrideStore interface {
+	SetConfigOverride(ctx context.Context, key, value string) error
+	DeleteConfigOverride(ctx context.Context, key string) error
+	ClearConfigOverrides(ctx context.Context) error
+}
+
 type Manager struct {
 	provider *config.Provider
-	cache    *cache.Cache
+	cache    overrideStore
 	envPath  string
 
 	mu        sync.Mutex
 	overrides map[string]string
 }
 
-func NewManager(provider *config.Provider, c *cache.Cache, envPath string, overrides map[string]string) *Manager {
+func NewManager(provider *config.Provider, c overrideStore, envPath string, overrides map[string]string) *Manager {
 	cp := make(map[string]string, len(overrides))
 	for k, v := range overrides {
 		if config.IsEditable(k) {
@@ -109,7 +114,7 @@ func (m *Manager) Apply(ctx context.Context, key, raw string) (string, error) {
 	if base := m.envValue(key, merged); base != "" {
 		if config.Display(newCfg, key) == base {
 			if err := m.cache.DeleteConfigOverride(ctx, key); err != nil {
-				return "", fmt.Errorf("удаление из Redis: %w", err)
+				return "", fmt.Errorf(i18n.T("error.settings.redis_delete"), err)
 			}
 			delete(m.overrides, key)
 			m.provider.Store(newCfg)
@@ -118,7 +123,7 @@ func (m *Manager) Apply(ctx context.Context, key, raw string) (string, error) {
 	}
 
 	if err := m.cache.SetConfigOverride(ctx, key, raw); err != nil {
-		return "", fmt.Errorf("сохранение в Redis: %w", err)
+		return "", fmt.Errorf(i18n.T("error.settings.redis_save"), err)
 	}
 
 	m.overrides[key] = raw
@@ -143,7 +148,7 @@ func (m *Manager) envValue(key string, merged map[string]string) string {
 
 func (m *Manager) Reset(ctx context.Context, key string) (string, error) {
 	if !config.IsEditable(key) {
-		return "", fmt.Errorf("параметр %q нельзя менять из бота", key)
+		return "", fmt.Errorf(i18n.T("error.config.not_editable"), key)
 	}
 
 	m.mu.Lock()
@@ -158,7 +163,7 @@ func (m *Manager) Reset(ctx context.Context, key string) (string, error) {
 	}
 
 	if err := m.cache.DeleteConfigOverride(ctx, key); err != nil {
-		return "", fmt.Errorf("удаление из Redis: %w", err)
+		return "", fmt.Errorf(i18n.T("error.settings.redis_delete"), err)
 	}
 
 	delete(m.overrides, key)
@@ -176,7 +181,7 @@ func (m *Manager) ResetAll(ctx context.Context) error {
 	}
 
 	if err := m.cache.ClearConfigOverrides(ctx); err != nil {
-		return fmt.Errorf("очистка Redis: %w", err)
+		return fmt.Errorf(i18n.T("error.settings.redis_clear"), err)
 	}
 
 	m.overrides = make(map[string]string)

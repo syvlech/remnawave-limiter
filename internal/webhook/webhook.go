@@ -7,19 +7,26 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"github.com/remnawave/limiter/internal/i18n"
+	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/remnawave/limiter/internal/i18n"
 )
 
 const (
 	maxAttempts       = 3
 	defaultRetryDelay = 2 * time.Second
+	attemptTimeout    = 10 * time.Second
+
+	MaxSendDuration = maxAttempts*attemptTimeout + defaultRetryDelay*(maxAttempts*(maxAttempts-1)/2)
 
 	maxDrainBytes = 4 << 10
 )
@@ -39,7 +46,8 @@ func NewClient(url, secret string, logger *logrus.Logger) *Client {
 		url:    url,
 		secret: secret,
 		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
+			Timeout:       attemptTimeout,
+			CheckRedirect: keepMethodOnRedirect,
 			Transport: &http.Transport{
 				Proxy: http.ProxyFromEnvironment,
 				DialContext: (&net.Dialer{
@@ -85,6 +93,7 @@ func (c *Client) Send(ctx context.Context, payload *Payload) {
 		sigs.timestamped = c.sign([]byte(timestamp), []byte("."), data)
 	}
 
+	var lastErr error
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		if attempt > 1 {
 			select {
@@ -102,6 +111,10 @@ func (c *Client) Send(ctx context.Context, payload *Payload) {
 			c.logger.WithError(err).WithField("event", payload.Event).Error(i18n.T("log.webhook_delivery_failed"))
 			return
 		}
+		lastErr = err
+		if attempt == maxAttempts {
+			break
+		}
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"attempt": attempt,
 			"of":      maxAttempts,
@@ -109,7 +122,7 @@ func (c *Client) Send(ctx context.Context, payload *Payload) {
 		}).Warn(i18n.T("log.webhook_retry"))
 	}
 
-	c.logger.WithField("event", payload.Event).Error(i18n.T("log.webhook_exhausted"))
+	c.logger.WithError(lastErr).WithField("event", payload.Event).Error(i18n.T("log.webhook_exhausted"))
 }
 
 type signatures struct {
@@ -136,6 +149,10 @@ func (c *Client) attempt(ctx context.Context, data []byte, timestamp string, sig
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			err = ue.Err
+		}
 		return true, err
 	}
 	defer resp.Body.Close()
@@ -144,14 +161,26 @@ func (c *Client) attempt(ctx context.Context, data []byte, timestamp string, sig
 	if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
 		return true, &statusError{code: resp.StatusCode}
 	}
-	if resp.StatusCode >= 400 {
+	if resp.StatusCode >= 300 {
 		return false, &statusError{code: resp.StatusCode}
 	}
 	return false, nil
 }
 
+const maxRedirects = 10
+
+func keepMethodOnRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= maxRedirects {
+		return fmt.Errorf("stopped after %d redirects", maxRedirects)
+	}
+	if req.Method != via[0].Method {
+		return http.ErrUseLastResponse
+	}
+	return nil
+}
+
 type statusError struct{ code int }
 
 func (e *statusError) Error() string {
-	return "получатель вернул статус " + strconv.Itoa(e.code)
+	return fmt.Sprintf(i18n.T("error.webhook.status"), e.code)
 }

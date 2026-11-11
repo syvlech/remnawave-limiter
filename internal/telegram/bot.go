@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -17,6 +18,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/remnawave/limiter/internal/i18n"
+	"github.com/remnawave/limiter/internal/version"
 )
 
 const (
@@ -29,6 +31,8 @@ const (
 	httpTimeout = pollTimeout + 15*time.Second
 
 	callbackAnswerMaxLen = 200
+
+	usernameRetryInterval = time.Minute
 )
 
 type Action struct {
@@ -39,7 +43,11 @@ type Action struct {
 
 type ActionHandler func(ctx context.Context, a Action) error
 
-var ErrStaleAction = errors.New("кнопка устарела")
+var ErrStaleAction error = staleActionError{}
+
+type staleActionError struct{}
+
+func (staleActionError) Error() string { return i18n.T("error.telegram.stale_action") }
 
 func actionData(action string, userID int64) string {
 	return fmt.Sprintf("%s:%d", action, userID)
@@ -76,7 +84,11 @@ func buildHTTPClient(proxyURL string) (*http.Client, error) {
 	if proxyURL != "" {
 		u, err := url.Parse(proxyURL)
 		if err != nil {
-			return nil, fmt.Errorf("невозможно разобрать URL %q: %w", proxyURL, err)
+			var ue *url.Error
+			if errors.As(err, &ue) {
+				err = ue.Err
+			}
+			return nil, fmt.Errorf(i18n.T("error.telegram.proxy_parse"), maskProxyURL(proxyURL), err)
 		}
 		proxy = http.ProxyURL(u)
 	}
@@ -98,13 +110,14 @@ func buildHTTPClient(proxyURL string) (*http.Client, error) {
 func maskProxyURL(proxyURL string) string {
 	u, err := url.Parse(proxyURL)
 	if err != nil {
-		return proxyURL
+		return reProxyUserinfo.ReplaceAllString(proxyURL, "//***@")
 	}
-	if u.User != nil {
-		u.User = url.UserPassword(u.User.Username(), "***")
-	}
-	return u.String()
+	return u.Redacted()
 }
+
+var reProxyUserinfo = regexp.MustCompile(`//[^/@]*@`)
+
+var reTokenSecret = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 func truncateAnswer(s string) string {
 	runes := []rune(s)
@@ -125,9 +138,17 @@ type Bot struct {
 
 	sendMu sync.Mutex
 
-	settings  SettingsProvider
+	settings SettingsProvider
+	location *time.Location
+
 	pendingMu sync.Mutex
 	pending   map[int64]pendingInput
+
+	pollLog *botLogger
+
+	meMu          sync.Mutex
+	username      string
+	usernameAsked time.Time
 }
 
 func NewBot(token string, chatID, threadID int64, adminIDs []int64, proxyURL string, logger *logrus.Logger) (*Bot, error) {
@@ -136,7 +157,7 @@ func NewBot(token string, chatID, threadID int64, adminIDs []int64, proxyURL str
 
 func newBot(token string, chatID, threadID int64, adminIDs []int64, proxyURL string, logger *logrus.Logger, extra ...tgbot.Option) (*Bot, error) {
 	if !validToken(token) {
-		return nil, fmt.Errorf("не удалось создать Telegram бота: неверный формат токена")
+		return nil, errors.New(i18n.T("error.telegram.bad_token"))
 	}
 
 	client, err := buildHTTPClient(proxyURL)
@@ -161,6 +182,7 @@ func newBot(token string, chatID, threadID int64, adminIDs []int64, proxyURL str
 	}
 
 	bl := newBotLogger(logger, token)
+	b.pollLog = bl
 	opts := []tgbot.Option{
 		tgbot.WithSkipGetMe(),
 		tgbot.WithHTTPClient(pollTimeout, &retryClient{
@@ -169,19 +191,14 @@ func newBot(token string, chatID, threadID int64, adminIDs []int64, proxyURL str
 			startDelay:  time.Second,
 			maxDelay:    20 * time.Second,
 		}),
-		tgbot.WithErrorsHandler(func(err error) { bl.Errorf("%v", err) }),
-		tgbot.WithDebugHandler(bl.Debugf),
+		tgbot.WithErrorsHandler(bl.report),
 		tgbot.WithDefaultHandler(b.handleUpdate),
 		tgbot.WithNotAsyncHandlers(),
-		// Telegram запоминает allowed_updates от прошлых getUpdates/webhook и без
-		// явного списка не присылает отсутствующие в нём типы. Общий или ранее
-		// использованный бот мог остаться без callback_query — тогда кнопки
-		// настроек и действий молча не работают. Запрашиваем нужные типы явно.
-		tgbot.WithAllowedUpdates(tgbot.AllowedUpdates{"message", "callback_query", "channel_post", "my_chat_member"}),
+		tgbot.WithAllowedUpdates(tgbot.AllowedUpdates{"message", "callback_query"}),
 	}
 	api, err := tgbot.New(token, append(opts, extra...)...)
 	if err != nil {
-		return nil, fmt.Errorf("не удалось создать Telegram бота: %w", err)
+		return nil, fmt.Errorf(i18n.T("error.telegram.create"), err)
 	}
 	b.api = api
 	return b, nil
@@ -195,7 +212,20 @@ func validToken(token string) bool {
 	if _, err := strconv.ParseInt(id, 10, 64); err != nil {
 		return false
 	}
-	return !strings.ContainsAny(secret, " /?#")
+	return reTokenSecret.MatchString(secret)
+}
+
+func (b *Bot) SetLocation(loc *time.Location) {
+	if loc != nil {
+		b.location = loc
+	}
+}
+
+func (b *Bot) timeLocation() *time.Location {
+	if b.location == nil {
+		return time.Local
+	}
+	return b.location
 }
 
 func (b *Bot) SetActionHandler(handler ActionHandler) {
@@ -289,7 +319,7 @@ func (b *Bot) sendMsg(ctx context.Context, m richMsg) error {
 	defer b.sendMu.Unlock()
 
 	if _, err := b.sendRich(ctx, b.chatID, int(b.threadID), m); err != nil {
-		return fmt.Errorf("не удалось отправить сообщение: %w", err)
+		return fmt.Errorf(i18n.T("error.telegram.send"), err)
 	}
 	return nil
 }
@@ -350,12 +380,27 @@ func (b *Bot) SendStats(ctx context.Context, text string) error {
 	return b.sendMsg(ctx, richMsg{HTML: text, Rows: statsRows()})
 }
 
-func (b *Bot) SendStartupMessage(ctx context.Context, text string) error {
-	rows := [][]richButton{{
-		cbButton(i18n.T("settings.open"), "cfg:menu", stylePrimary),
-		cbButton(i18n.T("button.stats"), "ui:stats", styleNone),
-	}}
+const statsNewMessageData = "ui:stats:new"
+
+func (b *Bot) SendDailyReport(ctx context.Context, text string) error {
+	rows := [][]richButton{{cbButton(i18n.T("button.stats"), statsNewMessageData, styleNone)}}
 	return b.sendMsg(ctx, richMsg{HTML: text, Rows: rows})
+}
+
+func (b *Bot) SendStartupMessage(ctx context.Context, text string) error {
+	rows := [][]richButton{
+		{
+			cbButton(i18n.T("settings.open"), "cfg:menu", stylePrimary),
+			cbButton(i18n.T("button.stats"), "ui:stats", styleNone),
+		},
+		{urlButton(i18n.T("button.star"), version.RepoURL)},
+	}
+	return b.sendMsg(ctx, richMsg{HTML: text, Rows: rows})
+}
+
+func (b *Bot) SendUpdateNotice(ctx context.Context, current, latest, releaseURL string) error {
+	rows := [][]richButton{{urlButton(i18n.T("button.release"), releaseURL)}}
+	return b.sendMsg(ctx, richMsg{HTML: FormatUpdateNotice(current, latest), Rows: rows})
 }
 
 func statsRows() [][]richButton {
@@ -394,7 +439,31 @@ func (b *Bot) RegisterCommands(ctx context.Context) {
 	}
 }
 
+func (b *Bot) botUsername(ctx context.Context) string {
+	b.meMu.Lock()
+	defer b.meMu.Unlock()
+
+	if b.username != "" || time.Since(b.usernameAsked) < usernameRetryInterval {
+		return b.username
+	}
+	b.usernameAsked = time.Now()
+
+	getCtx, cancel := context.WithTimeout(ctx, answerTimeout)
+	defer cancel()
+
+	me, err := b.api.GetMe(getCtx)
+	if err != nil {
+		if ctx.Err() == nil {
+			b.pollLog.report(err)
+		}
+		return ""
+	}
+	b.username = me.Username
+	return b.username
+}
+
 func (b *Bot) StartPolling(ctx context.Context) {
+	b.botUsername(ctx)
 	b.RegisterCommands(ctx)
 
 	b.logger.Info(i18n.T("log.telegram_polling_started"))
@@ -421,18 +490,31 @@ func (b *Bot) handleMessage(ctx context.Context, msg *models.Message) {
 		return
 	}
 
-	text := strings.TrimSpace(msg.Text)
-
-	switch strings.SplitN(text, "@", 2)[0] {
-	case "/settings":
-		b.handleSettingsCommand(ctx, msg)
-		return
-	case "/stats":
-		b.handleStatsCommand(ctx, msg)
+	name, target, addressed := splitCommand(msg.Text)
+	if name != "/settings" && name != "/stats" {
+		b.handlePendingInput(ctx, msg)
 		return
 	}
+	if addressed {
+		username := b.botUsername(ctx)
+		if username == "" || !strings.EqualFold(target, username) {
+			return
+		}
+	}
 
-	b.handlePendingInput(ctx, msg)
+	if name == "/settings" {
+		b.handleSettingsCommand(ctx, msg)
+		return
+	}
+	b.handleStatsCommand(ctx, msg)
+}
+
+func splitCommand(text string) (name, target string, addressed bool) {
+	words := strings.Fields(text)
+	if len(words) == 0 || !strings.HasPrefix(words[0], "/") {
+		return "", "", false
+	}
+	return strings.Cut(words[0], "@")
 }
 
 func (b *Bot) statsMessage(ctx context.Context) (richMsg, error) {
@@ -469,6 +551,9 @@ func (b *Bot) handleStatsCallback(ctx context.Context, callback *models.Callback
 		return
 	}
 	chatID, messageID, _ := callbackMessage(callback)
+	if callback.Data == statsNewMessageData {
+		messageID = 0
+	}
 	b.showScreen(ctx, chatID, messageID, m)
 	b.answerCallback(ctx, callback.ID, i18n.T("stats.refreshed"))
 }
@@ -501,7 +586,7 @@ func (b *Bot) handleCallback(ctx context.Context, callback *models.CallbackQuery
 	case strings.HasPrefix(callback.Data, "cfg:"):
 		b.handleSettingsCallback(ctx, callback)
 		return
-	case callback.Data == "ui:stats":
+	case callback.Data == "ui:stats", callback.Data == statsNewMessageData:
 		b.handleStatsCallback(ctx, callback)
 		return
 	}
@@ -606,7 +691,7 @@ func (b *Bot) markActionDone(ctx context.Context, chatID int64, messageID int, m
 		}
 		b.logger.WithError(err).Warn(i18n.T("log.telegram_action_reply"))
 	}
-	_, err := b.sendRich(ctx, chatID, b.threadFor(chatID), actionReport(action, userID, adminName, messageID))
+	_, err := b.sendRich(ctx, chatID, b.threadFor(chatID), actionReport(action, userID, adminName, messageID, b.timeLocation()))
 	return err
 }
 
@@ -645,7 +730,7 @@ func (b *Bot) markRichAlert(ctx context.Context, msg *models.Message, action str
 		models.RichText{
 			Type: models.RichTextTypeDateTime,
 			RichTextDateTime: &models.RichTextDateTime{
-				Text:           plainRich(now.Format("15:04")),
+				Text:           plainRich(now.In(b.timeLocation()).Format("15:04")),
 				UnixTime:       int(now.Unix()),
 				DateTimeFormat: "t",
 			},
@@ -661,15 +746,15 @@ func (b *Bot) markRichAlert(ctx context.Context, msg *models.Message, action str
 	_, err := b.api.EditMessageText(editCtx, &tgbot.EditMessageTextParams{
 		ChatID:      msg.Chat.ID,
 		MessageID:   msg.ID,
-		RichMessage: &models.InputRichMessage{Blocks: blocks, IsRTL: msg.RichMessage.IsRTL},
+		RichMessage: &models.InputRichMessage{Blocks: blocks, IsRTL: msg.RichMessage.IsRTL, SkipEntityDetection: true},
 	})
 	return err
 }
 
-func actionReport(action string, userID int64, adminName string, replyTo int) richMsg {
+func actionReport(action string, userID int64, adminName string, replyTo int, loc *time.Location) richMsg {
 	html := "<blockquote><b>" + escapeHTML(actionResultText(action)) + "</b> · " +
 		escapeHTML(i18n.T("action.admin")) + ": " + escapeHTML(adminName) + " · " +
 		escapeHTML(i18n.T("alert.user")) + ": <code>" + strconv.FormatInt(userID, 10) + "</code> · " +
-		tgTime(time.Now(), time.Local, "t") + "</blockquote>"
+		tgTime(time.Now(), loc, "t") + "</blockquote>"
 	return richMsg{HTML: html, Rows: undoRows(action, userID), ReplyTo: replyTo}
 }

@@ -25,10 +25,6 @@ func TestIPFilterMatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newIPFilter: %v", err)
 	}
-	if f.empty() {
-		t.Fatal("фильтр не должен быть пустым")
-	}
-
 	cases := []struct {
 		ip   string
 		want bool
@@ -53,10 +49,9 @@ func TestIPFilterEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newIPFilter(nil): %v", err)
 	}
-	if !f.empty() {
-		t.Fatal("пустой фильтр должен возвращать empty() == true")
-	}
-	if f.Match("1.2.3.4") {
-		t.Error("пустой фильтр не должен сопоставлять никакие IP")
+	for _, ip := range []string{"1.2.3.4", "10.0.0.1", "2001:db8::1", "not-an-ip"} {
+		if f.Match(ip) {
+			t.Errorf("пустой фильтр не должен сопоставлять никакие IP, совпал %q", ip)
+		}
 	}
 }

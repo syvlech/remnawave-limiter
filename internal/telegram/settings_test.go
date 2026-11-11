@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -9,18 +10,22 @@ import (
 	"time"
 
 	"github.com/go-telegram/bot/models"
+
+	"github.com/remnawave/limiter/internal/config"
+	"github.com/remnawave/limiter/internal/i18n"
 )
 
 type fakeSettings struct {
-	items   []SettingItem
-	applied []string
+	items    []SettingItem
+	applied  []string
+	applyErr error
 }
 
 func newFakeSettings() *fakeSettings {
 	return &fakeSettings{items: []SettingItem{
 		{Key: "ACTION_MODE", Title: "Режим действий", Display: "manual", Kind: SettingEnum, Allowed: []string{"manual", "auto"}},
 		{Key: "CHECK_INTERVAL", Title: "Интервал проверки (с)", Display: "60", Kind: SettingInt},
-		{Key: "AUTO_DISABLE_DURATION", Title: "Авто-отключение (мин)", Display: "30", Kind: SettingInt},
+		{Key: "AUTO_DISABLE_DURATION", Title: "Автоотключение (мин)", Display: "30", Kind: SettingInt},
 		{Key: "ASN_GROUPING", Title: "Группировка по ASN", Display: "false", Kind: SettingBool, Allowed: []string{"true", "false"}},
 		{Key: "FUTURE_KEY", Title: "Новый <параметр>", Display: "1", Kind: SettingInt},
 	}}
@@ -38,6 +43,9 @@ func (f *fakeSettings) Item(key string) (SettingItem, bool) {
 }
 
 func (f *fakeSettings) Apply(_ context.Context, key, raw string) (string, error) {
+	if f.applyErr != nil {
+		return "", f.applyErr
+	}
 	for i, it := range f.items {
 		if it.Key != key {
 			continue
@@ -119,7 +127,7 @@ func TestSettingsCommand_SendsGroupedMenu(t *testing.T) {
 		"<h3>⚙️ Настройки лимитера</h3>",
 		`<th colspan="2" align="left">🎯 Обнаружение</th>`,
 		"<td>Интервал проверки (с)</td><td><code>60</code></td>",
-		"<td>Авто-отключение (мин)</td><td><code>30</code> · 30 мин</td>",
+		"<td>Автоотключение (мин)</td><td><code>30</code> · 30 мин</td>",
 		"<td>Группировка по ASN</td><td>⬜ выкл</td>",
 		"🧩 Прочее",
 		"<td>Новый &lt;параметр&gt;</td>",
@@ -293,6 +301,142 @@ func TestSettingsGroups_CoverRegistryKeysOnce(t *testing.T) {
 	}
 }
 
+func TestSettingsScreens_CallbackDataFitsLimit(t *testing.T) {
+	const limit = 64
+	check := func(where string, m richMsg) {
+		t.Helper()
+		for _, row := range m.Rows {
+			for _, btn := range row {
+				if len(btn.Data) > limit {
+					t.Errorf("%s: callback data %q занимает %d байт при лимите %d", where, btn.Data, len(btn.Data), limit)
+				}
+			}
+		}
+	}
+	prefixes := func(m richMsg) map[string]bool {
+		out := map[string]bool{}
+		for _, row := range m.Rows {
+			for _, btn := range row {
+				if parts := strings.SplitN(btn.Data, ":", 3); len(parts) > 1 {
+					out[parts[0]+":"+parts[1]] = true
+				}
+			}
+		}
+		return out
+	}
+
+	fields := config.Registry()
+	if len(fields) == 0 {
+		t.Fatal("реестр настроек пуст")
+	}
+	fs := &fakeSettings{}
+	for _, f := range fields {
+		it := SettingItem{Key: f.Key, Title: i18n.T(f.TitleKey), Allowed: f.Allowed, Overridden: true}
+		switch f.Kind {
+		case config.KindInt:
+			it.Kind, it.Display = SettingInt, "1"
+		case config.KindFloat:
+			it.Kind, it.Display = SettingFloat, "1"
+		case config.KindBool:
+			it.Kind, it.Display = SettingBool, "true"
+		case config.KindEnum:
+			it.Kind = SettingEnum
+			if len(f.Allowed) == 0 {
+				t.Errorf("%s: у перечисления нет допустимых значений", f.Key)
+				continue
+			}
+			it.Display = f.Allowed[0]
+		default:
+			t.Fatalf("%s: неизвестный тип настройки %v", f.Key, f.Kind)
+		}
+		fs.items = append(fs.items, it)
+	}
+	b, _ := newTestBot(t, 100, 0)
+	b.SetSettingsProvider(fs)
+
+	seen := map[string]bool{}
+	note := func(m richMsg) {
+		for p := range prefixes(m) {
+			seen[p] = true
+		}
+	}
+
+	menu := b.menuScreen(notice{})
+	check("меню", menu)
+	note(menu)
+	for _, g := range groupedItems(fs.Items()) {
+		section := b.sectionScreen(g.id, notice{})
+		check("раздел "+g.id, section)
+		note(section)
+	}
+	for _, it := range fs.items {
+		edit := b.editScreen(it, notice{})
+		check("экран "+it.Key, edit)
+		note(edit)
+
+		want := "cfg:set:" + it.Key + ":"
+		for _, v := range it.Allowed {
+			if it.Kind != SettingEnum {
+				break
+			}
+			if !strings.Contains(edit.render(), `data="`+want+v+`"`) {
+				t.Errorf("%s: на экране редактирования нет кнопки значения %q", it.Key, v)
+			}
+		}
+	}
+	confirm := b.resetAllScreen()
+	check("подтверждение сброса", confirm)
+	note(confirm)
+
+	for _, p := range []string{"cfg:sec", "cfg:toggle", "cfg:edit", "cfg:set", "cfg:reset", "cfg:resetall", "cfg:menu"} {
+		if !seen[p] {
+			t.Errorf("проверка не увидела ни одной кнопки %s", p)
+		}
+	}
+
+	for _, g := range settingsGroups {
+		if data := "cfg:sec:" + g.id; len(data) > limit {
+			t.Errorf("callback data %q длиннее %d байт", data, limit)
+		}
+		for _, key := range g.keys {
+			for _, prefix := range []string{"cfg:toggle:", "cfg:edit:", "cfg:reset:"} {
+				if data := prefix + key; len(data) > limit {
+					t.Errorf("callback data %q длиннее %d байт", data, limit)
+				}
+			}
+		}
+	}
+}
+
+func TestSettingsNotice_EscapesErrorText(t *testing.T) {
+	const raw = `CHECK_INTERVAL должен быть > 0 & < 100, получено "<b>-5</b>"`
+	const escaped = `<blockquote>❌ CHECK_INTERVAL должен быть &gt; 0 &amp; &lt; 100, получено &quot;&lt;b&gt;-5&lt;/b&gt;&quot;</blockquote>`
+
+	if got := (notice{text: raw, isErr: true}).html(); got != escaped {
+		t.Errorf("текст уведомления должен экранироваться:\n got %s\nwant %s", got, escaped)
+	}
+
+	b, fake, fs := newSettingsBot(t)
+	fs.applyErr = errors.New(raw)
+
+	b.handleUpdate(context.Background(), nil, callbackUpdate(42, "cfg:edit:CHECK_INTERVAL"))
+	b.handleUpdate(context.Background(), nil, adminMessage("-5", 10))
+	typed := lastEditHTML(t, fake)
+
+	b.handleUpdate(context.Background(), nil, callbackUpdate(42, "cfg:set:CHECK_INTERVAL:30"))
+	preset := lastEditHTML(t, fake)
+
+	b.handleUpdate(context.Background(), nil, callbackUpdate(42, "cfg:toggle:ASN_GROUPING"))
+	toggled := lastEditHTML(t, fake)
+
+	for name, html := range map[string]string{"ввод значения": typed, "пресет": preset, "переключатель": toggled} {
+		if !strings.Contains(html, escaped) {
+			t.Errorf("%s: текст ошибки попал в rich HTML без экранирования:\n%s", name, html)
+		}
+		assertBalancedHTML(t, html)
+	}
+}
+
 func TestPendingInput_IgnoresOtherChats(t *testing.T) {
 	b, fake, fs := newSettingsBot(t)
 	b.handleUpdate(context.Background(), nil, callbackUpdate(42, "cfg:edit:CHECK_INTERVAL"))
@@ -381,7 +525,17 @@ func TestSettings_UneditableMenuIsResent(t *testing.T) {
 func TestLooksNumeric(t *testing.T) {
 	for s, want := range map[string]bool{
 		"45": true, "0.5": true, "-1": true, "1e3": true,
+		"+7": true, "007": true, "1.": true, ".5": true, "-0.25": true,
+		"1E3": true, "1e+3": true, "2.5e-3": true,
 		"": false, "abc": false, "45 секунд": false, "4 5": false,
+		"nan": false, "NaN": false, "inf": false, "+Inf": false, "-inf": false,
+		"Infinity": false, "infinity": false,
+		"0x1p4": false, "0x10": false, "0b11": false, "0o17": false,
+		"1_0": false, "1_000": false,
+		".": false, "-": false, "+": false, "e3": false, "1e": false, "1e+": false,
+		"1.2.3": false, "--1": false, "1,5": false, "1-2": false,
+		" 45": false, "45 ": false, "45\n": false, "45\n46": false, "\t45": false,
+		"٤٥": false, "４５": false, "45%": false, "/45": false,
 	} {
 		if got := looksNumeric(s); got != want {
 			t.Errorf("looksNumeric(%q) = %v, want %v", s, got, want)

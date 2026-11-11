@@ -19,6 +19,8 @@ import (
 	"github.com/remnawave/limiter/internal/monitor"
 	"github.com/remnawave/limiter/internal/settings"
 	"github.com/remnawave/limiter/internal/telegram"
+	"github.com/remnawave/limiter/internal/traffic"
+	"github.com/remnawave/limiter/internal/updatecheck"
 	"github.com/remnawave/limiter/internal/version"
 	"github.com/remnawave/limiter/internal/webhook"
 )
@@ -41,11 +43,15 @@ func groupingMode(cfg *config.Config) string {
 func run() int {
 	logger := newLogger()
 
-	cfg, err := config.LoadConfig("")
-	// LoadConfig loads .env without overriding environment variables. Select the
-	// language before the first startup log, including configuration failures.
+	envErr := config.LoadEnvFile("")
 	i18n.SetLanguage(os.Getenv("LANGUAGE"))
 	logger.Infof(i18n.T("log.application_version"), version.Version)
+	if envErr != nil {
+		logger.Errorf(i18n.T("log.config_failed"), envErr)
+		return 1
+	}
+
+	cfg, err := config.LoadConfig("")
 	if err != nil {
 		logger.Errorf(i18n.T("log.config_failed"), err)
 		return 1
@@ -66,8 +72,13 @@ func run() int {
 			logger.Errorf(i18n.T("log.asn_mkdir_failed"), filepath.Dir(dbPath), err)
 			return 1
 		}
-		if os.IsNotExist(statErr) {
-			logger.Infof(i18n.T("log.asn_downloading"), dbPath)
+		needDownload, dbErr := geoip.NeedsDownload(dbPath)
+		if needDownload {
+			if dbErr != nil {
+				logger.Warnf(i18n.T("log.asn_corrupt_redownloading"), dbPath, dbErr)
+			} else {
+				logger.Infof(i18n.T("log.asn_downloading"), dbPath)
+			}
 			dl := &geoip.Downloader{
 				LicenseKey: cfg.MaxMindLicenseKey,
 				Validate:   geoip.DefaultValidate,
@@ -123,9 +134,12 @@ func run() int {
 	logger.Info(i18n.T("log.redis_connected"))
 
 	appliedOverrides := map[string]string{}
-	if overrides, err := redisCache.GetConfigOverrides(ctx); err != nil {
-		logger.WithError(err).Warn(i18n.T("log.settings_load_failed"))
-	} else if len(overrides) > 0 {
+	overrides, err := redisCache.GetConfigOverrides(ctx)
+	if err != nil {
+		logger.WithError(err).Error(i18n.T("log.settings_load_failed"))
+		return 1
+	}
+	if len(overrides) > 0 {
 		merged, applied, rejected, err := config.MergeSavedOverrides("", overrides)
 		if err != nil {
 			logger.WithError(err).Error(i18n.T("log.settings_apply_failed"))
@@ -154,7 +168,7 @@ func run() int {
 	startupFields := logrus.Fields{
 		"mode":     cfg.ActionMode,
 		"interval": fmt.Sprintf("%ds", cfg.CheckInterval),
-		"api":      cfg.RemnawaveAPIURL,
+		"api":      config.RedactURL(cfg.RemnawaveAPIURL),
 		"grouping": groupingMode(cfg),
 	}
 	if len(cfg.IgnoredNodeUUIDs) > 0 {
@@ -186,6 +200,11 @@ func run() int {
 		logger.Errorf(i18n.T("log.telegram_failed"), err)
 		return 1
 	}
+	loc, err := time.LoadLocation(cfg.Timezone)
+	if err != nil {
+		loc = time.UTC
+	}
+	bot.SetLocation(loc)
 	logger.Info(i18n.T("log.telegram_connected"))
 
 	var webhookClient *webhook.Client
@@ -240,6 +259,7 @@ func run() int {
 		cfg.SubnetPrefixV4,
 		cfg.ASNGrouping,
 		maxmindLoaded,
+		asnDB.BuildTime(),
 		cfg.ViolationThreshold,
 		cfg.ViolationThresholdWindow,
 	)
@@ -262,6 +282,26 @@ func run() int {
 		}
 		go updater.Run(sigCtx)
 		logger.Infof(i18n.T("log.asn_update_enabled"), cfg.MaxMindUpdateInterval)
+	}
+
+	checker := &updatecheck.Checker{
+		Current:  version.Version,
+		Repo:     version.Repo,
+		Enabled:  func() bool { return cfgProvider.Load().UpdateCheck },
+		Notifier: bot,
+		Store:    redisCache,
+		Logger:   logger,
+	}
+	go checker.Run(sigCtx)
+	if cfg.UpdateCheck {
+		logger.Infof(i18n.T("log.update_check_enabled"), version.Repo)
+	}
+
+	trafficMon := traffic.New(cfgProvider, apiClient, redisCache, mon, bot, logger, loc)
+	mon.SetTrafficReport(trafficMon)
+	go trafficMon.Run(sigCtx)
+	if cfg.TrafficMonitor {
+		logger.Infof(i18n.T("log.traffic_enabled"), traffic.PollInterval)
 	}
 
 	go bot.StartPolling(sigCtx)

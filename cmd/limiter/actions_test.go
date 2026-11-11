@@ -11,6 +11,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/remnawave/limiter/internal/api"
 	"github.com/remnawave/limiter/internal/config"
 	"github.com/remnawave/limiter/internal/telegram"
 )
@@ -109,5 +110,83 @@ func TestActionHandler_LegacyButtonsUseCurrentConfig(t *testing.T) {
 	calls, err = runAction(t, cfg, telegram.Action{Name: "ignore_temp", UserID: 3})
 	if err != nil || strings.Join(calls, "|") != "whitelist 3 for 2h0m0s" {
 		t.Errorf("ignore_temp: %v, %v", calls, err)
+	}
+}
+
+type alreadyBackend struct {
+	fakeBackend
+}
+
+func (f *alreadyBackend) DisableUser(ctx context.Context, id int64) error {
+	_ = f.fakeBackend.DisableUser(ctx, id)
+	return &api.StatusError{Method: "POST", Path: "/disable", Code: 400, Body: `{"errorCode":"A029"}`}
+}
+
+func (f *alreadyBackend) EnableUser(ctx context.Context, id int64) error {
+	_ = f.fakeBackend.EnableUser(ctx, id)
+	return &api.StatusError{Method: "POST", Path: "/enable", Code: 400, Body: `{"errorCode":"A030"}`}
+}
+
+func TestActionHandler_AlreadyInTargetStateStillUpdatesTimer(t *testing.T) {
+	logger := logrus.New()
+	logger.SetOutput(io.Discard)
+	cases := []struct {
+		a    telegram.Action
+		want string
+	}{
+		{telegram.Action{Name: "disable", UserID: 7}, "disable 7|unrestore 7"},
+		{telegram.Action{Name: "disable_temp", UserID: 7, Minutes: 30}, "disable 7|restore 7 in 30m0s"},
+		{telegram.Action{Name: "enable", UserID: 7}, "enable 7|unrestore 7"},
+	}
+	for _, tc := range cases {
+		backend := &alreadyBackend{}
+		handler := newActionHandler(backend, backend, config.NewProvider(&config.Config{}), logger)
+		if err := handler(context.Background(), tc.a); err != nil {
+			t.Errorf("%s: ответ панели «уже в этом состоянии» не ошибка: %v", tc.a.Name, err)
+		}
+		if got := strings.Join(backend.calls, "|"); got != tc.want {
+			t.Errorf("%s: вызовы %q, ожидалось %q", tc.a.Name, got, tc.want)
+		}
+	}
+}
+
+type timerFailBackend struct {
+	fakeBackend
+	enableErr error
+}
+
+func (f *timerFailBackend) SetRestoreTimer(ctx context.Context, id int64, d time.Duration) error {
+	_ = f.fakeBackend.SetRestoreTimer(ctx, id, d)
+	return errors.New("redis down")
+}
+
+func (f *timerFailBackend) EnableUser(ctx context.Context, id int64) error {
+	_ = f.fakeBackend.EnableUser(ctx, id)
+	return f.enableErr
+}
+
+func TestActionHandler_DisableTempRollsBackWithoutTimer(t *testing.T) {
+	logger := logrus.New()
+	logger.SetOutput(io.Discard)
+	action := telegram.Action{Name: "disable_temp", UserID: 7, Minutes: 30}
+
+	backend := &timerFailBackend{}
+	handler := newActionHandler(backend, backend, config.NewProvider(&config.Config{}), logger)
+	err := handler(context.Background(), action)
+	if err == nil {
+		t.Fatal("сбой записи таймера должен вернуться ошибкой")
+	}
+	if got := strings.Join(backend.calls, "|"); got != "disable 7|restore 7 in 30m0s|enable 7" {
+		t.Errorf("без таймера отключение нужно отменить, вызовы %q", got)
+	}
+
+	stuck := &timerFailBackend{enableErr: errors.New("panel down")}
+	handler = newActionHandler(stuck, stuck, config.NewProvider(&config.Config{}), logger)
+	rolledBack, missing := err.Error(), ""
+	if err := handler(context.Background(), action); err != nil {
+		missing = err.Error()
+	}
+	if missing == "" || missing == rolledBack {
+		t.Errorf("если отменить не удалось, текст ошибки должен это отличать: %q и %q", rolledBack, missing)
 	}
 }

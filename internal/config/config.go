@@ -3,18 +3,21 @@ package config
 import (
 	"errors"
 	"fmt"
-	"github.com/remnawave/limiter/internal/i18n"
+	"io/fs"
 	"math"
 	"net"
 	"net/url"
 	"os"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/joho/godotenv"
-	"github.com/sirupsen/logrus"
+
+	"github.com/remnawave/limiter/internal/i18n"
 )
 
 type Config struct {
@@ -59,7 +62,15 @@ type Config struct {
 	IgnoredNodeUUIDs         []string
 	DailyReport              bool
 	DailyReportTime          string
-	HealthAddr               string
+	UpdateCheck              bool
+
+	TrafficMonitor          bool
+	TrafficSpikeFactor      float64
+	TrafficSpikeMinGB       int
+	TrafficHeavyGB          int
+	TrafficHeavyDays        int
+	TrafficIgnoredNodeUUIDs []string
+	HealthAddr              string
 }
 
 var (
@@ -69,66 +80,95 @@ var (
 
 const MaxToleranceMultiplier = 100
 
+const (
+	MinTrafficSpikeFactor = 1.5
+	MaxTrafficSpikeFactor = 100
+	MaxSeconds            = 365 * 24 * 3600
+	MaxMinutes            = 365 * 24 * 60
+	MaxTrafficGB          = 1_000_000
+)
+
 func LoadConfig(envPath string) (*Config, error) {
 	return LoadConfigWithOverrides(envPath, nil)
 }
 
-func LoadConfigWithOverrides(envPath string, overrides map[string]string) (*Config, error) {
+var (
+	envFileMu     sync.Mutex
+	envFileLoaded = map[string]error{}
+)
+
+func LoadEnvFile(envPath string) error {
 	if envPath == "" {
 		envPath = ".env"
 	}
+	envFileMu.Lock()
+	defer envFileMu.Unlock()
+	if err, done := envFileLoaded[envPath]; done {
+		return err
+	}
+	var result error
+	if err := godotenv.Load(envPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		result = fmt.Errorf(i18n.T("error.config.env_file"), envPath, err)
+	}
+	envFileLoaded[envPath] = result
+	return result
+}
 
-	if err := godotenv.Load(envPath); err != nil {
-		logrus.Debug(i18n.T("log.env_missing"))
+func LoadConfigWithOverrides(envPath string, overrides map[string]string) (*Config, error) {
+	if err := LoadEnvFile(envPath); err != nil {
+		return nil, err
 	}
 
 	l := &loader{overrides: overrides}
 
 	remnawaveAPIURL := l.lookup("REMNAWAVE_API_URL")
 	if remnawaveAPIURL == "" {
-		return nil, fmt.Errorf("REMNAWAVE_API_URL обязательный параметр")
+		return nil, fmt.Errorf(i18n.T("error.config.required"), "REMNAWAVE_API_URL")
 	}
 
 	remnawaveAPIToken := l.lookup("REMNAWAVE_API_TOKEN")
 	if remnawaveAPIToken == "" {
-		return nil, fmt.Errorf("REMNAWAVE_API_TOKEN обязательный параметр")
+		return nil, fmt.Errorf(i18n.T("error.config.required"), "REMNAWAVE_API_TOKEN")
 	}
 
 	telegramBotToken := l.lookup("TELEGRAM_BOT_TOKEN")
 	if telegramBotToken == "" {
-		return nil, fmt.Errorf("TELEGRAM_BOT_TOKEN обязательный параметр")
+		return nil, fmt.Errorf(i18n.T("error.config.required"), "TELEGRAM_BOT_TOKEN")
 	}
 
 	telegramChatIDStr := l.lookup("TELEGRAM_CHAT_ID")
 	if telegramChatIDStr == "" {
-		return nil, fmt.Errorf("TELEGRAM_CHAT_ID обязательный параметр")
+		return nil, fmt.Errorf(i18n.T("error.config.required"), "TELEGRAM_CHAT_ID")
 	}
 	telegramChatID, err := strconv.ParseInt(telegramChatIDStr, 10, 64)
 	if err != nil {
-		return nil, fmt.Errorf("TELEGRAM_CHAT_ID должен быть числом: %v", err)
+		return nil, fmt.Errorf(i18n.T("error.config.chat_id_number"), err)
 	}
 
 	telegramAdminIDsStr := l.lookup("TELEGRAM_ADMIN_IDS")
 	if telegramAdminIDsStr == "" {
-		return nil, fmt.Errorf("TELEGRAM_ADMIN_IDS обязательный параметр")
+		return nil, fmt.Errorf(i18n.T("error.config.required"), "TELEGRAM_ADMIN_IDS")
 	}
 	telegramAdminIDs, err := parseint64list(telegramAdminIDsStr)
 	if err != nil {
 		return nil, fmt.Errorf("TELEGRAM_ADMIN_IDS: %v", err)
 	}
+	if len(telegramAdminIDs) == 0 {
+		return nil, fmt.Errorf(i18n.T("error.config.required"), "TELEGRAM_ADMIN_IDS")
+	}
 
 	cfg := &Config{
 		RemnawaveAPIURL:          strings.TrimRight(strings.TrimSpace(remnawaveAPIURL), "/"),
 		RemnawaveAPIToken:        remnawaveAPIToken,
-		CheckInterval:            l.getEnvInt("CHECK_INTERVAL", 30),
-		ActiveIPWindow:           l.getEnvInt("ACTIVE_IP_WINDOW", 300),
+		CheckInterval:            l.getEnvInt("CHECK_INTERVAL", 60),
+		ActiveIPWindow:           l.getEnvInt("ACTIVE_IP_WINDOW", 120),
 		Tolerance:                l.getEnvInt("TOLERANCE", 0),
 		ToleranceMultiplier:      l.getEnvFloat64("TOLERANCE_MULTIPLIER", 0),
 		Cooldown:                 l.getEnvInt("COOLDOWN", 300),
 		UserCacheTTL:             l.getEnvInt("USER_CACHE_TTL", 600),
 		DefaultDeviceLimit:       l.getEnvInt("DEFAULT_DEVICE_LIMIT", 0),
 		ActionMode:               l.getEnv("ACTION_MODE", "manual"),
-		AutoDisableDuration:      l.getEnvInt("AUTO_DISABLE_DURATION", 0),
+		AutoDisableDuration:      l.getEnvInt("AUTO_DISABLE_DURATION", 15),
 		AutoNotifySoft:           l.getEnvBool("AUTO_NOTIFY_SOFT", false),
 		IgnoreDuration:           l.getEnvInt("IGNORE_DURATION", 0),
 		TelegramBotToken:         telegramBotToken,
@@ -136,7 +176,7 @@ func LoadConfigWithOverrides(envPath string, overrides map[string]string) (*Conf
 		TelegramThreadID:         l.getEnvInt64("TELEGRAM_THREAD_ID", 0),
 		TelegramAdminIDs:         telegramAdminIDs,
 		TelegramProxy:            l.getEnv("TELEGRAM_PROXY", ""),
-		WhitelistUserIDs:         parseList(l.getEnv("WHITELIST_USER_IDS", "")),
+		WhitelistUserIDs:         canonicalIDs(parseList(l.getEnv("WHITELIST_USER_IDS", ""))),
 		IPWhitelist:              parseList(l.getEnv("IP_WHITELIST", "")),
 		RedisURL:                 l.getEnv("REDIS_URL", "redis://redis:6379"),
 		Timezone:                 l.getEnv("TIMEZONE", "UTC"),
@@ -154,11 +194,18 @@ func LoadConfigWithOverrides(envPath string, overrides map[string]string) (*Conf
 		ASNDatabasePath:          l.getEnv("ASN_DATABASE_PATH", "./geoip/GeoLite2-ASN.mmdb"),
 		MaxMindLicenseKey:        l.getEnv("MAXMIND_LICENSE_KEY", ""),
 		MaxMindUpdateInterval:    l.getEnvDuration("MAXMIND_UPDATE_INTERVAL", 168*time.Hour),
-		ViolationThreshold:       l.getEnvInt("VIOLATION_THRESHOLD", 1),
+		ViolationThreshold:       l.getEnvInt("VIOLATION_THRESHOLD", 3),
 		ViolationThresholdWindow: l.getEnvInt("VIOLATION_THRESHOLD_WINDOW", 3600),
 		IgnoredNodeUUIDs:         parseLowercaseList(l.getEnv("IGNORED_NODE_UUIDS", "")),
-		DailyReport:              l.getEnvBool("DAILY_REPORT", false),
-		DailyReportTime:          l.getEnv("DAILY_REPORT_TIME", "09:00"),
+		DailyReport:              l.getEnvBool("DAILY_REPORT", true),
+		DailyReportTime:          l.getEnv("DAILY_REPORT_TIME", "21:00"),
+		UpdateCheck:              l.getEnvBool("UPDATE_CHECK", true),
+		TrafficMonitor:           l.getEnvBool("TRAFFIC_MONITOR", true),
+		TrafficSpikeFactor:       l.getEnvFloat64("TRAFFIC_SPIKE_FACTOR", 10),
+		TrafficSpikeMinGB:        l.getEnvInt("TRAFFIC_SPIKE_MIN_GB", 150),
+		TrafficHeavyGB:           l.getEnvInt("TRAFFIC_HEAVY_GB", 200),
+		TrafficHeavyDays:         l.getEnvInt("TRAFFIC_HEAVY_DAYS", 5),
+		TrafficIgnoredNodeUUIDs:  parseLowercaseList(l.getEnv("TRAFFIC_IGNORED_NODE_UUIDS", "")),
 		HealthAddr:               l.getEnv("HEALTH_ADDR", ""),
 	}
 
@@ -175,10 +222,13 @@ func LoadConfigWithOverrides(envPath string, overrides map[string]string) (*Conf
 
 func (cfg *Config) Validate() error {
 	if cfg.ActionMode != "manual" && cfg.ActionMode != "auto" {
-		return fmt.Errorf("ACTION_MODE должен быть \"manual\" или \"auto\", получено %q", cfg.ActionMode)
+		return fmt.Errorf(i18n.T("error.config.action_mode"), cfg.ActionMode)
 	}
 	if err := validateBaseURL("REMNAWAVE_API_URL", cfg.RemnawaveAPIURL); err != nil {
 		return err
+	}
+	if u, err := url.Parse(cfg.RemnawaveAPIURL); err == nil && (u.RawQuery != "" || u.Fragment != "") {
+		return fmt.Errorf(i18n.T("error.config.url_query"), "REMNAWAVE_API_URL", RedactURL(cfg.RemnawaveAPIURL))
 	}
 	if cfg.WebhookURL != "" {
 		if err := validateBaseURL("WEBHOOK_URL", cfg.WebhookURL); err != nil {
@@ -199,10 +249,11 @@ func (cfg *Config) Validate() error {
 		{"USER_CACHE_TTL", cfg.UserCacheTTL},
 		{"VIOLATION_THRESHOLD", cfg.ViolationThreshold},
 		{"VIOLATION_THRESHOLD_WINDOW", cfg.ViolationThresholdWindow},
+		{"TRAFFIC_SPIKE_MIN_GB", cfg.TrafficSpikeMinGB},
 	}
 	for _, p := range positive {
 		if p.value <= 0 {
-			return fmt.Errorf("%s должен быть > 0, получено %d", p.key, p.value)
+			return fmt.Errorf(i18n.T("error.config.positive"), p.key, p.value)
 		}
 	}
 
@@ -214,75 +265,107 @@ func (cfg *Config) Validate() error {
 		{"DEFAULT_DEVICE_LIMIT", cfg.DefaultDeviceLimit},
 		{"AUTO_DISABLE_DURATION", cfg.AutoDisableDuration},
 		{"IGNORE_DURATION", cfg.IgnoreDuration},
+		{"TRAFFIC_HEAVY_GB", cfg.TrafficHeavyGB},
 	}
 	for _, p := range nonNegative {
 		if p.value < 0 {
-			return fmt.Errorf("%s не может быть отрицательным, получено %d", p.key, p.value)
+			return fmt.Errorf(i18n.T("error.config.non_negative"), p.key, p.value)
+		}
+	}
+
+	bounded := []struct {
+		key   string
+		value int
+		max   int
+	}{
+		{"CHECK_INTERVAL", cfg.CheckInterval, MaxSeconds},
+		{"ACTIVE_IP_WINDOW", cfg.ActiveIPWindow, MaxSeconds},
+		{"COOLDOWN", cfg.Cooldown, MaxSeconds},
+		{"USER_CACHE_TTL", cfg.UserCacheTTL, MaxSeconds},
+		{"VIOLATION_THRESHOLD_WINDOW", cfg.ViolationThresholdWindow, MaxSeconds},
+		{"AUTO_DISABLE_DURATION", cfg.AutoDisableDuration, MaxMinutes},
+		{"IGNORE_DURATION", cfg.IgnoreDuration, MaxMinutes},
+		{"TRAFFIC_SPIKE_MIN_GB", cfg.TrafficSpikeMinGB, MaxTrafficGB},
+		{"TRAFFIC_HEAVY_GB", cfg.TrafficHeavyGB, MaxTrafficGB},
+	}
+	for _, p := range bounded {
+		if p.value > p.max {
+			return fmt.Errorf(i18n.T("error.config.too_large"), p.key, p.max, p.value)
 		}
 	}
 
 	if math.IsNaN(cfg.ToleranceMultiplier) || cfg.ToleranceMultiplier < 0 || cfg.ToleranceMultiplier > MaxToleranceMultiplier {
-		return fmt.Errorf("TOLERANCE_MULTIPLIER должен быть в диапазоне 0..%d, получено %v", MaxToleranceMultiplier, cfg.ToleranceMultiplier)
+		return fmt.Errorf(i18n.T("error.config.tolerance_multiplier"), MaxToleranceMultiplier, cfg.ToleranceMultiplier)
 	}
 	if err := validateThresholdReachable(cfg); err != nil {
 		return err
 	}
+	if math.IsNaN(cfg.TrafficSpikeFactor) || cfg.TrafficSpikeFactor < MinTrafficSpikeFactor || cfg.TrafficSpikeFactor > MaxTrafficSpikeFactor {
+		return fmt.Errorf(i18n.T("error.config.traffic_factor"), cfg.TrafficSpikeFactor)
+	}
+	if cfg.TrafficHeavyDays < 1 || cfg.TrafficHeavyDays > 7 {
+		return fmt.Errorf(i18n.T("error.config.traffic_days"), cfg.TrafficHeavyDays)
+	}
 	if cfg.SubnetPrefixV4 < 8 || cfg.SubnetPrefixV4 > 32 {
-		return fmt.Errorf("SUBNET_PREFIX_V4 должен быть в диапазоне 8..32, получено %d", cfg.SubnetPrefixV4)
+		return fmt.Errorf(i18n.T("error.config.subnet_prefix"), cfg.SubnetPrefixV4)
 	}
 	if cfg.MaxMindUpdateInterval < time.Hour {
-		return fmt.Errorf("MAXMIND_UPDATE_INTERVAL должен быть >= 1h, получено %v", cfg.MaxMindUpdateInterval)
+		return fmt.Errorf(i18n.T("error.config.maxmind_interval"), cfg.MaxMindUpdateInterval)
 	}
 	if _, _, err := ParseDailyReportTime(cfg.DailyReportTime); err != nil {
 		return fmt.Errorf("DAILY_REPORT_TIME: %v", err)
 	}
 	if _, err := time.LoadLocation(cfg.Timezone); err != nil {
-		return fmt.Errorf("TIMEZONE: неверная таймзона %q: %v", cfg.Timezone, err)
+		return fmt.Errorf(i18n.T("error.config.timezone"), cfg.Timezone, err)
 	}
 	if cfg.Language != "ru" && cfg.Language != "en" && cfg.Language != "zh" {
-		return fmt.Errorf("LANGUAGE должен быть \"ru\", \"en\" или \"zh\", получено %q", cfg.Language)
+		return fmt.Errorf(i18n.T("error.config.language"), cfg.Language)
 	}
 	if !contains(LogLevels, cfg.LogLevel) {
-		return fmt.Errorf("LOG_LEVEL должен быть одним из %v, получено %q", LogLevels, cfg.LogLevel)
+		return fmt.Errorf(i18n.T("error.config.one_of"), "LOG_LEVEL", LogLevels, cfg.LogLevel)
 	}
 	if !contains(LogFormats, cfg.LogFormat) {
-		return fmt.Errorf("LOG_FORMAT должен быть одним из %v, получено %q", LogFormats, cfg.LogFormat)
+		return fmt.Errorf(i18n.T("error.config.one_of"), "LOG_FORMAT", LogFormats, cfg.LogFormat)
 	}
 	if cfg.HealthAddr != "" {
-		if _, _, err := net.SplitHostPort(cfg.HealthAddr); err != nil {
-			return fmt.Errorf("HEALTH_ADDR: ожидается host:port (например \":8080\"), получено %q", cfg.HealthAddr)
+		_, port, err := net.SplitHostPort(cfg.HealthAddr)
+		if err != nil {
+			return fmt.Errorf(i18n.T("error.config.health_addr"), cfg.HealthAddr)
+		}
+		if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
+			return fmt.Errorf(i18n.T("error.config.health_addr"), cfg.HealthAddr)
 		}
 	}
 
 	for _, entry := range cfg.WhitelistUserIDs {
 		if _, err := strconv.ParseInt(entry, 10, 64); err != nil {
-			return fmt.Errorf("WHITELIST_USER_IDS: ожидается числовой ID пользователя, получено %q", entry)
+			return fmt.Errorf(i18n.T("error.config.whitelist_user_id"), entry)
 		}
 	}
 
 	for _, entry := range cfg.IPWhitelist {
 		if strings.Contains(entry, "/") {
 			if _, _, err := net.ParseCIDR(entry); err != nil {
-				return fmt.Errorf("IP_WHITELIST: неверный CIDR %q: %v", entry, err)
+				return fmt.Errorf(i18n.T("error.config.ip_whitelist_cidr"), entry, err)
 			}
 			continue
 		}
 		if net.ParseIP(entry) == nil {
-			return fmt.Errorf("IP_WHITELIST: неверный IP-адрес %q", entry)
+			return fmt.Errorf(i18n.T("error.config.ip_whitelist_ip"), entry)
 		}
 	}
 	if cfg.TelegramProxy != "" {
 		u, err := url.Parse(cfg.TelegramProxy)
 		if err != nil {
-			return fmt.Errorf("TELEGRAM_PROXY: невозможно разобрать URL %q: %v", cfg.TelegramProxy, err)
+			return fmt.Errorf(i18n.T("error.config.url_parse"), "TELEGRAM_PROXY", RedactURL(cfg.TelegramProxy), urlParseReason(err))
 		}
 		switch strings.ToLower(u.Scheme) {
 		case "http", "https", "socks5", "socks5h":
 		default:
-			return fmt.Errorf("TELEGRAM_PROXY: неподдерживаемая схема %q (ожидается http, https или socks5)", u.Scheme)
+			return fmt.Errorf(i18n.T("error.config.proxy_scheme"), u.Scheme)
 		}
 		if u.Host == "" {
-			return fmt.Errorf("TELEGRAM_PROXY: отсутствует host:port в %q", cfg.TelegramProxy)
+			return fmt.Errorf(i18n.T("error.config.proxy_host"), RedactURL(cfg.TelegramProxy))
 		}
 	}
 	return nil
@@ -297,23 +380,22 @@ func validateThresholdReachable(cfg *Config) error {
 	if need < int64(cfg.ViolationThresholdWindow) {
 		return nil
 	}
-	return fmt.Errorf("VIOLATION_THRESHOLD=%d недостижим: между нарушениями проходит не меньше COOLDOWN + CHECK_INTERVAL (%dс), "+
-		"%d таких шагов — %dс, а VIOLATION_THRESHOLD_WINDOW=%dс. Увеличьте окно больше %dс или уменьшите COOLDOWN либо порог",
+	return fmt.Errorf(i18n.T("error.config.threshold_unreachable"),
 		cfg.ViolationThreshold, step, cfg.ViolationThreshold-1, need, cfg.ViolationThresholdWindow, need)
 }
 
 func validateBaseURL(key, raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil {
-		return fmt.Errorf("%s: невозможно разобрать URL %q: %v", key, raw, err)
+		return fmt.Errorf(i18n.T("error.config.url_parse"), key, RedactURL(raw), urlParseReason(err))
 	}
 	switch strings.ToLower(u.Scheme) {
 	case "http", "https":
 	default:
-		return fmt.Errorf("%s: ожидается http:// или https://, получено %q", key, raw)
+		return fmt.Errorf(i18n.T("error.config.url_scheme"), key, RedactURL(raw))
 	}
 	if u.Host == "" {
-		return fmt.Errorf("%s: отсутствует host в %q", key, raw)
+		return fmt.Errorf(i18n.T("error.config.url_host"), key, RedactURL(raw))
 	}
 	return nil
 }
@@ -321,14 +403,40 @@ func validateBaseURL(key, raw string) error {
 func validateRedisURL(raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil {
-		return fmt.Errorf("REDIS_URL: невозможно разобрать URL %q: %v", raw, err)
+		return fmt.Errorf(i18n.T("error.config.url_parse"), "REDIS_URL", RedactURL(raw), urlParseReason(err))
 	}
 	switch strings.ToLower(u.Scheme) {
 	case "redis", "rediss", "unix":
 	default:
-		return fmt.Errorf("REDIS_URL: ожидается redis://, rediss:// или unix://, получено %q", raw)
+		return fmt.Errorf(i18n.T("error.config.redis_scheme"), RedactURL(raw))
 	}
 	return nil
+}
+
+var reURLUserinfo = regexp.MustCompile(`//[^/@]*@`)
+
+func RedactURL(raw string) string {
+	if u, err := url.Parse(raw); err == nil {
+		return u.Redacted()
+	}
+	return reURLUserinfo.ReplaceAllString(raw, "//***@")
+}
+
+func urlParseReason(err error) error {
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		return ue.Err
+	}
+	return err
+}
+
+func canonicalIDs(items []string) []string {
+	for i, item := range items {
+		if id, err := strconv.ParseInt(item, 10, 64); err == nil {
+			items[i] = strconv.FormatInt(id, 10)
+		}
+	}
+	return items
 }
 
 func contains(list []string, value string) bool {
@@ -359,7 +467,7 @@ func (l *loader) err() error {
 }
 
 func (l *loader) invalid(key, value, expected string) {
-	l.errs = append(l.errs, fmt.Errorf("%s: ожидается %s, получено %q", key, expected, value))
+	l.errs = append(l.errs, fmt.Errorf(i18n.T("error.config.invalid"), key, expected, value))
 }
 
 func (l *loader) getEnv(key, defaultValue string) string {
@@ -376,7 +484,7 @@ func (l *loader) getEnvInt(key string, defaultValue int) int {
 	}
 	intVal, err := strconv.Atoi(strings.TrimSpace(value))
 	if err != nil {
-		l.invalid(key, value, "целое число")
+		l.invalid(key, value, i18n.T("error.config.expect_int"))
 		return defaultValue
 	}
 	return intVal
@@ -389,7 +497,7 @@ func (l *loader) getEnvInt64(key string, defaultValue int64) int64 {
 	}
 	intVal, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
 	if err != nil {
-		l.invalid(key, value, "целое число")
+		l.invalid(key, value, i18n.T("error.config.expect_int"))
 		return defaultValue
 	}
 	return intVal
@@ -402,7 +510,7 @@ func (l *loader) getEnvFloat64(key string, defaultValue float64) float64 {
 	}
 	floatVal, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
 	if err != nil {
-		l.invalid(key, value, "число")
+		l.invalid(key, value, i18n.T("error.config.expect_number"))
 		return defaultValue
 	}
 	return floatVal
@@ -415,7 +523,7 @@ func (l *loader) getEnvDuration(key string, defaultValue time.Duration) time.Dur
 	}
 	d, err := time.ParseDuration(strings.TrimSpace(value))
 	if err != nil {
-		l.invalid(key, value, "длительность вида 24h, 30m")
+		l.invalid(key, value, i18n.T("error.config.expect_duration"))
 		return defaultValue
 	}
 	return d
@@ -428,7 +536,7 @@ func (l *loader) getEnvBool(key string, defaultValue bool) bool {
 	}
 	b, err := strconv.ParseBool(strings.TrimSpace(value))
 	if err != nil {
-		l.invalid(key, value, "true или false")
+		l.invalid(key, value, i18n.T("error.config.expect_bool"))
 		return defaultValue
 	}
 	return b
@@ -456,12 +564,23 @@ func MergeSavedOverrides(envPath string, saved map[string]string) (*Config, map[
 	sort.Strings(keys)
 
 	kept := make(map[string]string, len(accepted))
-	for _, key := range keys {
-		kept[key] = accepted[key]
-		if _, err := LoadConfigWithOverrides(envPath, kept); err != nil {
-			delete(kept, key)
-			rejected[key] = err
+	pending := keys
+	for len(pending) > 0 {
+		var failed []string
+		for _, key := range pending {
+			kept[key] = accepted[key]
+			if _, err := LoadConfigWithOverrides(envPath, kept); err != nil {
+				delete(kept, key)
+				rejected[key] = err
+				failed = append(failed, key)
+				continue
+			}
+			delete(rejected, key)
 		}
+		if len(failed) == len(pending) {
+			break
+		}
+		pending = failed
 	}
 
 	cfg, err := LoadConfigWithOverrides(envPath, kept)
@@ -474,15 +593,15 @@ func MergeSavedOverrides(envPath string, saved map[string]string) (*Config, map[
 func ParseDailyReportTime(s string) (hour, minute int, err error) {
 	parts := strings.Split(strings.TrimSpace(s), ":")
 	if len(parts) != 2 {
-		return 0, 0, fmt.Errorf("ожидается формат HH:MM, получено %q", s)
+		return 0, 0, fmt.Errorf(i18n.T("error.config.time_format"), s)
 	}
 	hour, err = strconv.Atoi(strings.TrimSpace(parts[0]))
 	if err != nil || hour < 0 || hour > 23 {
-		return 0, 0, fmt.Errorf("часы должны быть в диапазоне 0..23, получено %q", parts[0])
+		return 0, 0, fmt.Errorf(i18n.T("error.config.time_hours"), parts[0])
 	}
 	minute, err = strconv.Atoi(strings.TrimSpace(parts[1]))
 	if err != nil || minute < 0 || minute > 59 {
-		return 0, 0, fmt.Errorf("минуты должны быть в диапазоне 0..59, получено %q", parts[1])
+		return 0, 0, fmt.Errorf(i18n.T("error.config.time_minutes"), parts[1])
 	}
 	return hour, minute, nil
 }
@@ -500,7 +619,7 @@ func parseint64list(s string) ([]int64, error) {
 		}
 		val, err := strconv.ParseInt(trimmed, 10, 64)
 		if err != nil {
-			return nil, fmt.Errorf("невозможно преобразовать %q в число: %v", trimmed, err)
+			return nil, fmt.Errorf(i18n.T("error.config.list_number"), trimmed, err)
 		}
 		result = append(result, val)
 	}

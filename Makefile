@@ -18,8 +18,9 @@ clean:
 test:
 	go test ./...
 
-# Тесты internal/cache требуют живой Redis на localhost:6379 и без него
-# молча пропускаются — гоняйте их с поднятым `make docker-up`.
+# Тесты internal/cache и internal/settings требуют живой Redis на localhost:6379
+# и без него молча пропускаются. `make docker-up` не подходит (порт не публикуется):
+# docker run --rm -d -p 6379:6379 valkey/valkey:9.1-alpine
 test-race:
 	go test -race ./...
 

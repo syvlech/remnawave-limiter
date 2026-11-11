@@ -9,7 +9,9 @@ import (
 
 	"github.com/go-telegram/bot/models"
 
+	"github.com/remnawave/limiter/internal/api"
 	"github.com/remnawave/limiter/internal/cache"
+	"github.com/remnawave/limiter/internal/i18n"
 )
 
 var reTag = regexp.MustCompile(`<(/?)([a-zA-Z0-9-]+)[^>]*?(/?)>`)
@@ -94,7 +96,7 @@ func TestRichMsgKeyboard_Fallback(t *testing.T) {
 
 func TestPlainText(t *testing.T) {
 	in := `<h3>Title &amp; more</h3><table><tr><th>User</th><td><code>bob</code></td></tr></table>` +
-		`<p>a<br/>b</p><tg-button-row><tg-button type="callback_data" data="x">Btn</tg-button></tg-button-row>`
+		`<p>a<br/>b</p>`
 	got := plainText(in)
 
 	for _, want := range []string{"Title & more", "User  bob", "a\nb"} {
@@ -102,8 +104,44 @@ func TestPlainText(t *testing.T) {
 			t.Errorf("plainText missing %q:\n%s", want, got)
 		}
 	}
-	if strings.Contains(got, "Btn") || strings.Contains(got, "<") {
-		t.Errorf("plainText must drop buttons and tags:\n%s", got)
+	if strings.Contains(got, "<") {
+		t.Errorf("plainText must drop tags:\n%s", got)
+	}
+}
+
+func TestPlainText_KeepsLinkTargets(t *testing.T) {
+	cases := []struct {
+		name, in, want string
+	}{
+		{"текст отличается от адреса", `<a href="https://e.com/sub/abc">открыть</a>`, "открыть (https://e.com/sub/abc)"},
+		{"текст совпадает с адресом", `<a href="https://e.com/x">https://e.com/x</a>`, "https://e.com/x"},
+		{"сущности в адресе", `<a href="https://e.com/?a=1&amp;b=&quot;2&quot;&amp;c=&lt;3&gt;">link</a>`, `link (https://e.com/?a=1&b="2"&c=<3>)`},
+		{"сущность в адресе не раскрывается дважды", `<a href="https://e.com/?q=&amp;amp;">link</a>`, "link (https://e.com/?q=&amp;)"},
+		{"совпадение после раскрытия сущностей", `<a href="https://e.com/?a=1&amp;b=2">https://e.com/?a=1&amp;b=2</a>`, "https://e.com/?a=1&b=2"},
+		{"разметка внутри ссылки", `<a href="https://e.com"><b>сайт</b> &amp; ко</a>`, "сайт & ко (https://e.com)"},
+		{"одинарные кавычки и лишние атрибуты", `<A class="x" HREF='https://e.com/a' target="_blank">a</A>`, "a (https://e.com/a)"},
+		{"пустой текст", `<a href="https://e.com"></a>`, "https://e.com"},
+		{"пустой адрес", `<a href="">текст</a>`, "текст"},
+		{"без href", `<a name="x">текст</a>`, "текст"},
+		{"не ссылка", `<abbr href="https://e.com">x</abbr>`, "x"},
+		{"две ссылки", `<a href="https://a.io">1</a>, <a href="https://b.io">2</a>`, "1 (https://a.io), 2 (https://b.io)"},
+	}
+	for _, c := range cases {
+		if got := plainText(c.in); got != c.want {
+			t.Errorf("%s: plainText(%q) = %q, ожидалось %q", c.name, c.in, got, c.want)
+		}
+	}
+}
+
+func TestPlainText_ProfileRowKeepsSubscriptionURL(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("<table>")
+	writeUserRows(&b, &api.CachedUser{Username: "bob", SubscriptionURL: "https://panel.example/sub/a?x=1&y=2"})
+	b.WriteString("</table>")
+
+	got := plainText(b.String())
+	if !strings.Contains(got, "(https://panel.example/sub/a?x=1&y=2)") {
+		t.Errorf("ссылка на подписку потеряна в запасном тексте:\n%s", got)
 	}
 }
 
@@ -174,7 +212,7 @@ func TestFormatStats(t *testing.T) {
 }
 
 func TestFormatStats_Empty(t *testing.T) {
-	out := FormatDailyReport(&cache.ViolationStats{}, time.UTC)
+	out := FormatDailyReport(&cache.ViolationStats{}, time.UTC, nil)
 	if !strings.Contains(out, "<blockquote>✅ Нарушений за неделю не зафиксировано</blockquote>") {
 		t.Errorf("expected empty-state quote:\n%s", out)
 	}
@@ -185,7 +223,7 @@ func TestFormatStats_Empty(t *testing.T) {
 }
 
 func TestFormatStartupMessage(t *testing.T) {
-	out := FormatStartupMessage("4.6.0", "auto", 60, 300, 1, 0.5, 0, 30, true, false, true, 24, false, true, 3, 600)
+	out := FormatStartupMessage("4.6.0", "auto", 60, 300, 1, 0.5, 0, 30, true, false, true, 24, false, true, time.Date(2026, 11, 1, 6, 0, 0, 0, time.UTC), 3, 600)
 
 	for _, want := range []string{
 		"<h3>🚀 Remnawave Limiter запущен</h3>",
@@ -193,10 +231,12 @@ func TestFormatStartupMessage(t *testing.T) {
 		row("⚙️ Режим", "<b>Автоматический</b>"),
 		row("📊 Допуск", "1 · ×0.50"),
 		row("📱 Лимит по умолчанию", "не ограничено"),
-		row("🔔 Уведомления в пределах допуска", "✅ включён"),
+		row("🔔 Уведомления в пределах допуска", "✅ вкл"),
 		row("🚦 Порог нарушений", "3 / 600с"),
-		row("🌐 Группировка подсетей", "✅ включён · <code>/24</code>"),
-		row("🔗 Webhook", "⬜ выключен"),
+		row("🌐 Группировка по подсетям", "✅ вкл · <code>/24</code>"),
+		row("🔗 Webhook", "⬜ выкл"),
+		row("🌍 MaxMind DB", "✅ загружена, сборка от 01.11.2026"),
+		"<p>⭐ Если лимитер вам полезен, поставьте звезду репозиторию на GitHub",
 		"<footer>",
 	} {
 		if !strings.Contains(out, want) {
@@ -204,4 +244,24 @@ func TestFormatStartupMessage(t *testing.T) {
 		}
 	}
 	assertBalancedHTML(t, out)
+}
+
+func TestFormatStartupMessage_MaxMindDateByLanguage(t *testing.T) {
+	t.Cleanup(func() { i18n.SetLanguage("ru") })
+	built := time.Date(2026, 11, 1, 6, 0, 0, 0, time.UTC)
+	for lang, want := range map[string]string{
+		"en": "✅ loaded, built 1 Nov 2026",
+		"zh": "✅ 已加载（2026-11-01 版）",
+	} {
+		i18n.SetLanguage(lang)
+		out := FormatStartupMessage("4.6.0", "manual", 60, 300, 0, 0, 0, 0, false, false, false, 24, true, true, built, 1, 3600)
+		if !strings.Contains(out, want) {
+			t.Errorf("%s: нет %q:\n%s", lang, want, out)
+		}
+	}
+	i18n.SetLanguage("ru")
+	out := FormatStartupMessage("4.6.0", "manual", 60, 300, 0, 0, 0, 0, false, false, false, 24, true, true, time.Time{}, 1, 3600)
+	if !strings.Contains(out, "✅ загружена</td>") {
+		t.Errorf("без даты сборки — просто «загружена»:\n%s", out)
+	}
 }

@@ -1,7 +1,7 @@
 package telegram
 
 import (
-	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -12,6 +12,8 @@ import (
 const repeatWindow = 5 * time.Minute
 
 const maxTrackedMessages = 64
+
+var reSourceAddr = regexp.MustCompile(`\S+->`)
 
 type botLogger struct {
 	logger *logrus.Logger
@@ -61,18 +63,15 @@ func (l *botLogger) allow(msg string) bool {
 	return true
 }
 
-func (l *botLogger) Debugf(format string, args ...any) {
-	if !l.logger.IsLevelEnabled(logrus.DebugLevel) {
-		return
-	}
-	l.logger.WithField("src", "tgbot").Debug(l.redact(fmt.Sprintf(format, args...)))
+func dedupeKey(msg string) string {
+	return reSourceAddr.ReplaceAllString(msg, "->")
 }
 
-func (l *botLogger) Errorf(format string, args ...any) {
-	msg := l.redact(fmt.Sprintf(format, args...))
+func (l *botLogger) report(err error) {
+	msg := l.redact(err.Error())
 	entry := l.logger.WithField("src", "tgbot")
 
-	if !l.allow(msg) {
+	if !l.allow(dedupeKey(msg)) {
 		entry.Debug(msg)
 		return
 	}

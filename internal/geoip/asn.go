@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/netip"
 	"sync"
+	"time"
 
 	"github.com/oschwald/maxminddb-golang/v2"
 )
@@ -57,6 +58,18 @@ func (d *DBResolver) Reload(path string) error {
 		_ = old.Close()
 	}
 	return nil
+}
+
+func (d *DBResolver) BuildTime() time.Time {
+	if d == nil {
+		return time.Time{}
+	}
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	if d.reader == nil || d.reader.Metadata.BuildEpoch == 0 {
+		return time.Time{}
+	}
+	return d.reader.Metadata.BuildTime()
 }
 
 func (d *DBResolver) Close() error {

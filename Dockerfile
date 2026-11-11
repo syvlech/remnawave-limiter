@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM golang:1.27-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS builder
 
 # Пусто по умолчанию: тогда версия берётся из internal/version/version.go.
 # Значение вроде "dev" здесь перетирало бы её при любой сборке без --build-arg.

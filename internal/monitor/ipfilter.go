@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net"
 	"strings"
+
+	"github.com/remnawave/limiter/internal/i18n"
 )
 
 type ipFilter struct {
@@ -21,22 +23,18 @@ func newIPFilter(entries []string) (*ipFilter, error) {
 		if strings.Contains(entry, "/") {
 			_, network, err := net.ParseCIDR(entry)
 			if err != nil {
-				return nil, fmt.Errorf("неверный CIDR %q: %w", entry, err)
+				return nil, fmt.Errorf(i18n.T("error.monitor.cidr"), entry, err)
 			}
 			f.nets = append(f.nets, network)
 			continue
 		}
 		ip := net.ParseIP(entry)
 		if ip == nil {
-			return nil, fmt.Errorf("неверный IP-адрес %q", entry)
+			return nil, fmt.Errorf(i18n.T("error.monitor.ip"), entry)
 		}
 		f.exact[ip.String()] = struct{}{}
 	}
 	return f, nil
-}
-
-func (f *ipFilter) empty() bool {
-	return len(f.exact) == 0 && len(f.nets) == 0
 }
 
 func (f *ipFilter) Match(ipStr string) bool {

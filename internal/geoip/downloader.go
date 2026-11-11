@@ -4,8 +4,10 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"os"
@@ -14,17 +16,25 @@ import (
 	"time"
 
 	"github.com/oschwald/maxminddb-golang/v2"
+
+	"github.com/remnawave/limiter/internal/i18n"
 )
 
 const (
 	defaultBaseURL = "https://download.maxmind.com/app/geoip_download"
 
 	maxDBSize = 512 << 20
+
+	dbFileName = "GeoLite2-ASN.mmdb"
+	tmpPattern = "GeoLite2-ASN.*.mmdb.tmp"
 )
 
 func redactLicenseKey(s, key string) string {
 	if key == "" {
 		return s
+	}
+	if escaped := url.QueryEscape(key); escaped != key {
+		s = strings.ReplaceAll(s, escaped, "***")
 	}
 	return strings.ReplaceAll(s, key, "***")
 }
@@ -35,6 +45,8 @@ type Downloader struct {
 	BaseURL    string
 	Validate   func(path string) error
 	Timeout    time.Duration
+
+	maxSize int64
 }
 
 func DefaultValidate(path string) error {
@@ -43,6 +55,31 @@ func DefaultValidate(path string) error {
 		return err
 	}
 	return r.Close()
+}
+
+func NeedsDownload(path string) (bool, error) {
+	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
+		return true, nil
+	}
+	if err := DefaultValidate(path); err != nil {
+		return true, err
+	}
+	return false, nil
+}
+
+func removeStaleTemp(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if !e.Type().IsRegular() {
+			continue
+		}
+		if ok, _ := filepath.Match(tmpPattern, e.Name()); ok {
+			_ = os.Remove(filepath.Join(dir, e.Name()))
+		}
+	}
 }
 
 func (d *Downloader) Download(ctx context.Context, dstPath string) error {
@@ -68,6 +105,13 @@ func (d *Downloader) Download(ctx context.Context, dstPath string) error {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: timeout}
 	}
+	limit := d.maxSize
+	if limit <= 0 {
+		limit = maxDBSize
+	}
+
+	dstDir := filepath.Dir(dstPath)
+	removeStaleTemp(dstDir)
 
 	params := url.Values{}
 	params.Set("edition_id", "GeoLite2-ASN")
@@ -91,11 +135,10 @@ func (d *Downloader) Download(ctx context.Context, dstPath string) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("downloader: http status %d %s", resp.StatusCode, resp.Status)
+		return fmt.Errorf("downloader: http status %s", resp.Status)
 	}
 
-	dstDir := filepath.Dir(dstPath)
-	tmpFile, err := os.CreateTemp(dstDir, "GeoLite2-ASN.*.mmdb.tmp")
+	tmpFile, err := os.CreateTemp(dstDir, tmpPattern)
 	if err != nil {
 		return fmt.Errorf("downloader: create tmp file: %w", err)
 	}
@@ -129,24 +172,27 @@ func (d *Downloader) Download(ctx context.Context, dstPath string) error {
 		if hdr.Typeflag != tar.TypeReg {
 			continue
 		}
-		if !strings.HasSuffix(hdr.Name, "/GeoLite2-ASN.mmdb") && !strings.HasSuffix(hdr.Name, "GeoLite2-ASN.mmdb") {
+		if !strings.HasSuffix(hdr.Name, dbFileName) {
 			continue
 		}
-		written, err := io.Copy(tmpFile, io.LimitReader(tr, maxDBSize+1))
+		written, err := io.Copy(tmpFile, io.LimitReader(tr, limit+1))
 		if err != nil {
 			return fmt.Errorf("downloader: extract: %w", err)
 		}
-		if written > maxDBSize {
-			return fmt.Errorf("downloader: база больше %d байт — отброшена", maxDBSize)
+		if written > limit {
+			return fmt.Errorf(i18n.T("error.geoip.db_too_large"), limit)
 		}
 		found = true
 		break
 	}
 
 	if !found {
-		return fmt.Errorf("downloader: GeoLite2-ASN.mmdb not found in archive")
+		return fmt.Errorf("downloader: %s not found in archive", dbFileName)
 	}
 
+	if err := tmpFile.Sync(); err != nil {
+		return fmt.Errorf("downloader: sync tmp: %w", err)
+	}
 	if err := tmpFile.Close(); err != nil {
 		return fmt.Errorf("downloader: close tmp: %w", err)
 	}

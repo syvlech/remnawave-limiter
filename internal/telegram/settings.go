@@ -3,6 +3,7 @@ package telegram
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -87,6 +88,19 @@ func (b *Bot) clearPending(adminID int64) {
 	delete(b.pending, adminID)
 }
 
+func (b *Bot) clearPendingForMessage(chatID int64, messageID int) {
+	if messageID == 0 {
+		return
+	}
+	b.pendingMu.Lock()
+	defer b.pendingMu.Unlock()
+	for adminID, p := range b.pending {
+		if p.chatID == chatID && p.messageID == messageID {
+			delete(b.pending, adminID)
+		}
+	}
+}
+
 type settingsGroup struct {
 	id   string
 	keys []string
@@ -99,7 +113,8 @@ var settingsGroups = []settingsGroup{
 	{id: "actions", keys: []string{"ACTION_MODE", "AUTO_DISABLE_DURATION", "IGNORE_DURATION", "AUTO_NOTIFY_SOFT"}},
 	{id: "thresholds", keys: []string{"COOLDOWN", "VIOLATION_THRESHOLD", "VIOLATION_THRESHOLD_WINDOW"}},
 	{id: "grouping", keys: []string{"ASN_GROUPING", "SUBNET_GROUPING", "SUBNET_PREFIX_V4"}},
-	{id: "service", keys: []string{"USER_CACHE_TTL", "DAILY_REPORT", "LOG_LEVEL"}},
+	{id: "traffic", keys: []string{"TRAFFIC_MONITOR", "TRAFFIC_SPIKE_FACTOR", "TRAFFIC_SPIKE_MIN_GB", "TRAFFIC_HEAVY_GB", "TRAFFIC_HEAVY_DAYS"}},
+	{id: "service", keys: []string{"USER_CACHE_TTL", "DAILY_REPORT", "UPDATE_CHECK", "LOG_LEVEL"}},
 }
 
 var settingPresets = map[string][]string{
@@ -115,6 +130,10 @@ var settingPresets = map[string][]string{
 	"VIOLATION_THRESHOLD_WINDOW": {"600", "1800", "3600", "7200"},
 	"SUBNET_PREFIX_V4":           {"16", "20", "22", "24"},
 	"USER_CACHE_TTL":             {"60", "300", "600", "1800"},
+	"TRAFFIC_SPIKE_FACTOR":       {"5", "10", "20"},
+	"TRAFFIC_SPIKE_MIN_GB":       {"50", "100", "150", "200", "300"},
+	"TRAFFIC_HEAVY_GB":           {"0", "50", "100", "200"},
+	"TRAFFIC_HEAVY_DAYS":         {"3", "5", "7"},
 }
 
 var minuteKeys = map[string]bool{
@@ -415,9 +434,6 @@ func (b *Bot) handleSettingsCommand(ctx context.Context, msg *models.Message) {
 	if b.settings == nil {
 		return
 	}
-	if !b.adminIDs[msg.From.ID] {
-		return
-	}
 	b.clearPending(msg.From.ID)
 	if _, err := b.sendRich(ctx, msg.Chat.ID, b.threadFor(msg.Chat.ID), b.menuScreen(notice{})); err != nil {
 		b.logger.WithError(err).Error(i18n.T("log.telegram_settings_failed"))
@@ -433,6 +449,9 @@ func (b *Bot) handlePendingInput(ctx context.Context, msg *models.Message) {
 		return
 	}
 	raw := strings.TrimSpace(msg.Text)
+	if raw == "" {
+		return
+	}
 	if msg.Chat.Type != models.ChatTypePrivate && !looksNumeric(raw) {
 		return
 	}
@@ -460,12 +479,10 @@ func (b *Bot) handlePendingInput(ctx context.Context, msg *models.Message) {
 	}
 }
 
+var reDecimalNumber = regexp.MustCompile(`^[+-]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?$`)
+
 func looksNumeric(s string) bool {
-	if s == "" || strings.ContainsAny(s, " \t\n") {
-		return false
-	}
-	_, err := strconv.ParseFloat(s, 64)
-	return err == nil
+	return reDecimalNumber.MatchString(s)
 }
 
 func (b *Bot) handleSettingsCallback(ctx context.Context, callback *models.CallbackQuery) {
@@ -481,6 +498,7 @@ func (b *Bot) handleSettingsCallback(ctx context.Context, callback *models.Callb
 	b.clearPending(callback.From.ID)
 
 	chatID, messageID, _ := callbackMessage(callback)
+	b.clearPendingForMessage(chatID, messageID)
 	show := func(m richMsg) int {
 		return b.showScreen(ctx, chatID, messageID, m)
 	}
@@ -520,7 +538,7 @@ func (b *Bot) handleSettingsCallback(ctx context.Context, callback *models.Callb
 		display, err := b.settings.Apply(ctx, arg, newVal)
 		if err != nil {
 			show(b.sectionScreen(groupOf(arg), notice{text: err.Error(), isErr: true}))
-			answer(truncateAnswer(applyErr(err)))
+			answer(applyErr(err))
 			return
 		}
 		show(b.sectionScreen(groupOf(arg), notice{text: fmt.Sprintf(i18n.T("settings.applied"), it.Title, display)}))
@@ -556,7 +574,7 @@ func (b *Bot) handleSettingsCallback(ctx context.Context, callback *models.Callb
 		display, err := b.settings.Apply(ctx, arg, value)
 		if err != nil {
 			show(b.editScreen(it, notice{text: err.Error(), isErr: true}))
-			answer(truncateAnswer(applyErr(err)))
+			answer(applyErr(err))
 			return
 		}
 		show(b.sectionScreen(groupOf(arg), notice{text: fmt.Sprintf(i18n.T("settings.applied"), it.Title, display)}))
@@ -571,7 +589,7 @@ func (b *Bot) handleSettingsCallback(ctx context.Context, callback *models.Callb
 		display, err := b.settings.Reset(ctx, arg)
 		if err != nil {
 			show(b.editScreen(it, notice{text: err.Error(), isErr: true}))
-			answer(truncateAnswer(applyErr(err)))
+			answer(applyErr(err))
 			return
 		}
 		show(b.sectionScreen(groupOf(arg), notice{text: fmt.Sprintf(i18n.T("settings.reset_done"), it.Title, display)}))
@@ -585,7 +603,7 @@ func (b *Bot) handleSettingsCallback(ctx context.Context, callback *models.Callb
 		}
 		if err := b.settings.ResetAll(ctx); err != nil {
 			show(b.menuScreen(notice{text: err.Error(), isErr: true}))
-			answer(truncateAnswer(applyErr(err)))
+			answer(applyErr(err))
 			return
 		}
 		show(b.menuScreen(notice{text: i18n.T("settings.reset_all_toast")}))

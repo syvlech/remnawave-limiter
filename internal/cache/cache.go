@@ -32,6 +32,9 @@ const (
 	prefixTrafficDay         = "traffic:day:"
 	prefixTrafficAlert       = "traffic:alerted:"
 	keyTrafficFinalized      = "traffic:finalized"
+	prefixHWIDHistory        = "hwid:seen:"
+	prefixHWIDReported       = "hwid:reported:"
+	keyHWIDState             = "hwid:state"
 
 	trafficDayMarker = "_"
 
@@ -585,4 +588,200 @@ func (c *Cache) GetTrafficDaysAll(ctx context.Context, days []string) ([]map[int
 		}
 	}
 	return out, nil
+}
+
+type HWIDRecord struct {
+	HWID       string
+	UserID     int64
+	Username   string
+	TelegramID int64
+	SeenAt     time.Time
+}
+
+type hwidRecordJSON struct {
+	Username   string `json:"u,omitempty"`
+	TelegramID int64  `json:"t,omitempty"`
+	SeenAt     int64  `json:"s"`
+}
+
+func (r HWIDRecord) encode() (string, error) {
+	data, err := json.Marshal(hwidRecordJSON{Username: r.Username, TelegramID: r.TelegramID, SeenAt: r.SeenAt.Unix()})
+	if err != nil {
+		return "", fmt.Errorf("marshal hwid record: %w", err)
+	}
+	return string(data), nil
+}
+
+type HWIDState struct {
+	Watermark time.Time
+	Polled    time.Time
+}
+
+func (c *Cache) GetHWIDState(ctx context.Context) (HWIDState, error) {
+	raw, err := c.client.HGetAll(ctx, keyHWIDState).Result()
+	if err != nil {
+		return HWIDState{}, fmt.Errorf("get hwid state: %w", err)
+	}
+	var st HWIDState
+	if v, err := time.Parse(time.RFC3339Nano, raw["watermark"]); err == nil {
+		st.Watermark = v
+	}
+	if v, err := time.Parse(time.RFC3339Nano, raw["polled"]); err == nil {
+		st.Polled = v
+	}
+	return st, nil
+}
+
+func (c *Cache) SetHWIDState(ctx context.Context, st HWIDState) error {
+	return c.client.HSet(ctx, keyHWIDState,
+		"watermark", st.Watermark.UTC().Format(time.RFC3339Nano),
+		"polled", st.Polled.UTC().Format(time.RFC3339Nano),
+	).Err()
+}
+
+func (c *Cache) HWIDRecorded(ctx context.Context, records []HWIDRecord) ([]bool, error) {
+	out := make([]bool, len(records))
+	if len(records) == 0 {
+		return out, nil
+	}
+	pipe := c.client.Pipeline()
+	cmds := make([]*redis.BoolCmd, len(records))
+	for i, r := range records {
+		cmds[i] = pipe.HExists(ctx, prefixHWIDHistory+r.HWID, formatUserID(r.UserID))
+	}
+	if _, err := pipe.Exec(ctx); err != nil {
+		return nil, fmt.Errorf("check hwid history: %w", err)
+	}
+	for i, cmd := range cmds {
+		out[i] = cmd.Val()
+	}
+	return out, nil
+}
+
+var recordHWID = redis.NewScript(`
+	redis.call('HSET', KEYS[1], ARGV[1], ARGV[2])
+	local cutoff = tonumber(ARGV[3])
+	local all = redis.call('HGETALL', KEYS[1])
+	for i = 1, #all, 2 do
+		if all[i] ~= ARGV[1] then
+			local ok, rec = pcall(cjson.decode, all[i + 1])
+			if ok and type(rec) == 'table' and tonumber(rec.s) and tonumber(rec.s) < cutoff then
+				redis.call('HDEL', KEYS[1], all[i])
+			end
+		end
+	end
+	redis.call('PEXPIRE', KEYS[1], ARGV[4])
+	return 1
+`)
+
+func (c *Cache) RecordHWID(ctx context.Context, r HWIDRecord, ttl time.Duration) error {
+	value, err := r.encode()
+	if err != nil {
+		return err
+	}
+	cutoff := time.Now().Add(-ttl).Unix()
+	if err := recordHWID.Run(ctx, c.client, []string{prefixHWIDHistory + r.HWID},
+		formatUserID(r.UserID), value, cutoff, ttl.Milliseconds()).Err(); err != nil && err != redis.Nil {
+		return fmt.Errorf("record hwid: %w", err)
+	}
+	return nil
+}
+
+var seedHWIDRecord = redis.NewScript(`
+	redis.call('HSETNX', KEYS[1], ARGV[1], ARGV[2])
+	local ttl = tonumber(ARGV[3])
+	local cur = redis.call('PTTL', KEYS[1])
+	if cur == -1 or cur < ttl then
+		redis.call('PEXPIRE', KEYS[1], ttl)
+	end
+	return 1
+`)
+
+func (c *Cache) SeedHWIDHistory(ctx context.Context, records []HWIDRecord, retention time.Duration) error {
+	if len(records) == 0 {
+		return nil
+	}
+	now := time.Now()
+	pipe := c.client.Pipeline()
+	for _, r := range records {
+		value, err := r.encode()
+		if err != nil {
+			return err
+		}
+		ttl := r.SeenAt.Add(retention).Sub(now)
+		if ttl < time.Minute {
+			ttl = time.Minute
+		}
+		seedHWIDRecord.Eval(ctx, pipe, []string{prefixHWIDHistory + r.HWID}, formatUserID(r.UserID), value, ttl.Milliseconds())
+	}
+	if _, err := pipe.Exec(ctx); err != nil {
+		return fmt.Errorf("seed hwid history: %w", err)
+	}
+	return nil
+}
+
+func (c *Cache) GetHWIDHistory(ctx context.Context, hwid string) (map[int64]HWIDRecord, error) {
+	raw, err := c.client.HGetAll(ctx, prefixHWIDHistory+hwid).Result()
+	if err != nil {
+		return nil, fmt.Errorf("get hwid history: %w", err)
+	}
+	out := make(map[int64]HWIDRecord, len(raw))
+	for field, value := range raw {
+		id, err := strconv.ParseInt(field, 10, 64)
+		if err != nil {
+			continue
+		}
+		var rec hwidRecordJSON
+		if err := json.Unmarshal([]byte(value), &rec); err != nil {
+			continue
+		}
+		out[id] = HWIDRecord{HWID: hwid, UserID: id, Username: rec.Username, TelegramID: rec.TelegramID, SeenAt: time.Unix(rec.SeenAt, 0).UTC()}
+	}
+	return out, nil
+}
+
+func (c *Cache) GetHWIDReported(ctx context.Context, userID int64) (map[int64]bool, error) {
+	members, err := c.client.SMembers(ctx, prefixHWIDReported+formatUserID(userID)).Result()
+	if err != nil {
+		return nil, fmt.Errorf("get hwid reported: %w", err)
+	}
+	out := make(map[int64]bool, len(members))
+	for _, m := range members {
+		if id, err := strconv.ParseInt(m, 10, 64); err == nil {
+			out[id] = true
+		}
+	}
+	return out, nil
+}
+
+func (c *Cache) MarkHWIDReported(ctx context.Context, userID int64, others []int64, ttl time.Duration) error {
+	if len(others) == 0 {
+		return nil
+	}
+	members := make([]interface{}, len(others))
+	for i, id := range others {
+		members[i] = formatUserID(id)
+	}
+	key := prefixHWIDReported + formatUserID(userID)
+	pipe := c.client.TxPipeline()
+	pipe.SAdd(ctx, key, members...)
+	pipe.Expire(ctx, key, ttl)
+	if _, err := pipe.Exec(ctx); err != nil {
+		return fmt.Errorf("mark hwid reported: %w", err)
+	}
+	return nil
+}
+
+func (c *Cache) UnmarkHWIDReported(ctx context.Context, userID int64, others []int64) error {
+	if len(others) == 0 {
+		return nil
+	}
+	members := make([]interface{}, len(others))
+	for i, id := range others {
+		members[i] = formatUserID(id)
+	}
+	if err := c.client.SRem(ctx, prefixHWIDReported+formatUserID(userID), members...).Err(); err != nil {
+		return fmt.Errorf("unmark hwid reported: %w", err)
+	}
+	return nil
 }

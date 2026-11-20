@@ -15,6 +15,7 @@ import (
 	"github.com/remnawave/limiter/internal/cache"
 	"github.com/remnawave/limiter/internal/config"
 	"github.com/remnawave/limiter/internal/geoip"
+	"github.com/remnawave/limiter/internal/hwidshare"
 	"github.com/remnawave/limiter/internal/i18n"
 	"github.com/remnawave/limiter/internal/monitor"
 	"github.com/remnawave/limiter/internal/settings"
@@ -302,6 +303,13 @@ func run() int {
 	go trafficMon.Run(sigCtx)
 	if cfg.TrafficMonitor {
 		logger.Infof(i18n.T("log.traffic_enabled"), traffic.PollInterval)
+	}
+
+	hwidMon := hwidshare.New(cfgProvider, apiClient, mon, redisCache, bot, logger, loc)
+	go hwidMon.Run(sigCtx)
+	if cfg.SharedHWIDMonitor {
+		logger.WithField("squads", len(cfg.SharedHWIDSquadUUIDs)).
+			Infof(i18n.T("log.shared_hwid_enabled"), hwidshare.PollInterval)
 	}
 
 	go bot.StartPolling(sigCtx)

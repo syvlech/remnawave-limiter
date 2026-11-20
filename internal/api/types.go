@@ -50,13 +50,20 @@ type UserResponse struct {
 }
 
 type UserData struct {
-	ID              int64   `json:"id"`
-	Username        string  `json:"username"`
-	Status          string  `json:"status"`
-	Email           *string `json:"email"`
-	TelegramID      *int64  `json:"telegramId"`
-	HWIDDeviceLimit *int    `json:"hwidDeviceLimit"`
-	SubscriptionURL string  `json:"subscriptionUrl,omitempty"`
+	ID                   int64           `json:"id"`
+	Username             string          `json:"username"`
+	Status               string          `json:"status"`
+	Email                *string         `json:"email"`
+	TelegramID           *int64          `json:"telegramId"`
+	HWIDDeviceLimit      *int            `json:"hwidDeviceLimit"`
+	SubscriptionURL      string          `json:"subscriptionUrl,omitempty"`
+	ActiveInternalSquads []InternalSquad `json:"activeInternalSquads"`
+	CreatedAt            time.Time       `json:"createdAt"`
+}
+
+type InternalSquad struct {
+	UUID string `json:"uuid"`
+	Name string `json:"name"`
 }
 
 type DropConnectionsRequest struct {
@@ -83,12 +90,14 @@ type ActiveIP struct {
 }
 
 type CachedUser struct {
-	UserID          int64  `json:"user_id"`
-	Username        string `json:"username"`
-	Email           string `json:"email"`
-	TelegramID      int64  `json:"telegram_id"`
-	HWIDDeviceLimit int    `json:"hwid_device_limit"`
-	SubscriptionURL string `json:"subscription_url"`
+	UserID          int64    `json:"user_id"`
+	Username        string   `json:"username"`
+	Email           string   `json:"email"`
+	TelegramID      int64    `json:"telegram_id"`
+	HWIDDeviceLimit int      `json:"hwid_device_limit"`
+	SubscriptionURL string   `json:"subscription_url"`
+	Squads          []string `json:"squads,omitempty"`
+	SquadUUIDs      []string `json:"squad_uuids,omitempty"`
 }
 
 type HWIDDevicesResponse struct {
@@ -100,6 +109,7 @@ type HWIDDevicesResponse struct {
 
 type HWIDDevice struct {
 	HWID        string    `json:"hwid"`
+	UserID      int64     `json:"userId"`
 	Platform    string    `json:"platform"`
 	OSVersion   string    `json:"osVersion"`
 	DeviceModel string    `json:"deviceModel"`

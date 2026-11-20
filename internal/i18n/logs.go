@@ -136,6 +136,17 @@ func init() {
 		"log.traffic_alert_failed":           "Не удалось отправить алерт о трафике",
 		"log.traffic_user_failed":            "Не удалось получить данные пользователя для алерта о трафике",
 		"log.daily_traffic_failed":           "Не удалось собрать раздел о трафике для ежедневного отчёта",
+		"log.shared_hwid_enabled":            "Поиск общих HWID включён: опрос раз в %s",
+		"log.shared_hwid_poll_failed":        "Не удалось получить HWID-устройства из панели",
+		"log.shared_hwid_unavailable":        "Панель не отдаёт общий список HWID-устройств: у токена нет scope hwid-user-devices:list или версия панели старая, поиск общих HWID пропущен",
+		"log.shared_hwid_store_failed":       "Ошибка истории HWID в Redis",
+		"log.shared_hwid_seeded":             "История HWID заполнена из панели",
+		"log.shared_hwid_poll":               "Общие HWID",
+		"log.shared_hwid_alert":              "Один HWID у нескольких аккаунтов",
+		"log.shared_hwid_alert_failed":       "Не удалось отправить алерт об общем HWID",
+		"log.shared_hwid_user_failed":        "Не удалось получить данные пользователя для проверки HWID",
+		"log.shared_hwid_backlog":            "Новых устройств больше, чем разбирается за один опрос: они записаны в историю без алертов",
+		"log.shared_hwid_gave_up":            "Устройство так и не удалось проверить: оно записано в историю без алерта",
 	} {
 		translations["ru"][key] = value
 	}
@@ -274,6 +285,17 @@ func init() {
 		"log.traffic_alert_failed":           "Failed to send the traffic alert",
 		"log.traffic_user_failed":            "Failed to fetch user data for the traffic alert",
 		"log.daily_traffic_failed":           "Failed to build the traffic section of the daily report",
+		"log.shared_hwid_enabled":            "Shared HWID search enabled: polling every %s",
+		"log.shared_hwid_poll_failed":        "Failed to fetch HWID devices from the panel",
+		"log.shared_hwid_unavailable":        "The panel does not return the HWID device list: the token lacks the hwid-user-devices:list scope or the panel is too old, shared HWID search skipped",
+		"log.shared_hwid_store_failed":       "HWID history error in Redis",
+		"log.shared_hwid_seeded":             "HWID history filled from the panel",
+		"log.shared_hwid_poll":               "Shared HWIDs",
+		"log.shared_hwid_alert":              "One HWID on several accounts",
+		"log.shared_hwid_alert_failed":       "Failed to send the shared HWID alert",
+		"log.shared_hwid_user_failed":        "Failed to fetch user data for the HWID check",
+		"log.shared_hwid_backlog":            "More new devices than one poll handles: they were recorded in the history without alerts",
+		"log.shared_hwid_gave_up":            "The device could not be checked for hours: it was recorded in the history without an alert",
 	} {
 		translations["en"][key] = value
 	}
@@ -412,6 +434,17 @@ func init() {
 		"log.traffic_alert_failed":           "发送流量告警失败",
 		"log.traffic_user_failed":            "获取流量告警所需的用户数据失败",
 		"log.daily_traffic_failed":           "生成每日报告的流量部分失败",
+		"log.shared_hwid_enabled":            "共用 HWID 检测已启用：每 %s 轮询一次",
+		"log.shared_hwid_poll_failed":        "无法从面板获取 HWID 设备",
+		"log.shared_hwid_unavailable":        "面板未返回 HWID 设备列表：令牌缺少 hwid-user-devices:list 权限或面板版本过旧，已跳过共用 HWID 检测",
+		"log.shared_hwid_store_failed":       "Redis 中的 HWID 历史出错",
+		"log.shared_hwid_seeded":             "已从面板填充 HWID 历史",
+		"log.shared_hwid_poll":               "共用 HWID",
+		"log.shared_hwid_alert":              "多个账户共用同一 HWID",
+		"log.shared_hwid_alert_failed":       "发送共用 HWID 告警失败",
+		"log.shared_hwid_user_failed":        "获取用户数据以检查 HWID 失败",
+		"log.shared_hwid_backlog":            "新设备数量超过单次轮询的处理上限：已记入历史，不发送告警",
+		"log.shared_hwid_gave_up":            "该设备长时间无法完成检查：已记入历史，不发送告警",
 	} {
 		translations["zh"][key] = value
 	}

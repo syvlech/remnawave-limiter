@@ -65,6 +65,7 @@ func init() {
 		"error.update.decode":                "не удалось разобрать ответ GitHub: %w",
 		"error.config.traffic_factor":        "TRAFFIC_SPIKE_FACTOR должен быть в диапазоне 1.5..100, получено %v",
 		"error.config.traffic_days":          "TRAFFIC_HEAVY_DAYS должен быть в диапазоне 1..7, получено %d",
+		"error.config.squad_uuid":            "SHARED_HWID_SQUAD_UUIDS: %q не похоже на UUID внутреннего сквада",
 	} {
 		translations["ru"][key] = value
 	}
@@ -132,6 +133,7 @@ func init() {
 		"error.update.decode":                "cannot parse the GitHub response: %w",
 		"error.config.traffic_factor":        "TRAFFIC_SPIKE_FACTOR must be in the range 1.5..100, got %v",
 		"error.config.traffic_days":          "TRAFFIC_HEAVY_DAYS must be in the range 1..7, got %d",
+		"error.config.squad_uuid":            "SHARED_HWID_SQUAD_UUIDS: %q does not look like an internal squad UUID",
 	} {
 		translations["en"][key] = value
 	}
@@ -199,6 +201,7 @@ func init() {
 		"error.update.decode":                "无法解析 GitHub 响应：%w",
 		"error.config.traffic_factor":        "TRAFFIC_SPIKE_FACTOR 必须在 1.5..100 范围内，当前为 %v",
 		"error.config.traffic_days":          "TRAFFIC_HEAVY_DAYS 必须在 1..7 范围内，当前为 %d",
+		"error.config.squad_uuid":            "SHARED_HWID_SQUAD_UUIDS：%q 不像内部分组的 UUID",
 	} {
 		translations["zh"][key] = value
 	}

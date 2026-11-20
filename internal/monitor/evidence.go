@@ -2,8 +2,6 @@ package monitor
 
 import (
 	"context"
-	"errors"
-	"net/http"
 	"sort"
 	"strings"
 	"sync"
@@ -63,8 +61,7 @@ func (m *Monitor) collectEvidence(ctx context.Context, userID int64, active []ap
 }
 
 func (m *Monitor) evidenceFailed(endpoint string, userID int64, err error) {
-	var se *api.StatusError
-	if errors.As(err, &se) && (se.Code == http.StatusForbidden || se.Code == http.StatusNotFound) {
+	if api.IsUnavailable(err) {
 		if _, seen := m.evidenceWarned.LoadOrStore(endpoint, true); !seen {
 			m.logger.WithError(err).WithField("endpoint", endpoint).Warn(i18n.T("log.evidence_unavailable"))
 		}
@@ -124,7 +121,7 @@ func buildFetchEvidence(records []api.SubscriptionRequest, active []api.ActiveIP
 		if rec.RequestAt.After(g.lastAt) {
 			g.lastAt = rec.RequestAt
 		}
-		if app := appName(rec.UserAgent); app != "" {
+		if app := api.AppName(rec.UserAgent); app != "" {
 			key := strings.ToLower(app)
 			if _, dup := g.apps[key]; !dup {
 				g.appSeen = append(g.appSeen, app)
@@ -172,57 +169,8 @@ func buildDeviceEvidence(devices []api.HWIDDevice) *telegram.DeviceEvidence {
 		if seen.IsZero() {
 			seen = d.CreatedAt
 		}
-		items = append(items, telegram.DeviceItem{Name: deviceName(d), App: appName(d.UserAgent), Seen: seen})
+		items = append(items, telegram.DeviceItem{Name: d.DisplayName(), App: api.AppName(d.UserAgent), Seen: seen})
 	}
 	sort.SliceStable(items, func(i, j int) bool { return items[i].Seen.After(items[j].Seen) })
 	return &telegram.DeviceEvidence{Items: items}
-}
-
-func deviceName(d api.HWIDDevice) string {
-	model := strings.TrimSpace(d.DeviceModel)
-	platform := strings.TrimSpace(d.Platform)
-	osVersion := strings.TrimSpace(d.OSVersion)
-
-	system := platform
-	switch {
-	case osVersion == "":
-	case platform == "" || strings.HasPrefix(strings.ToLower(osVersion), strings.ToLower(platform)):
-		system = osVersion
-	default:
-		system = platform + " " + osVersion
-	}
-
-	var parts []string
-	if model != "" {
-		parts = append(parts, model)
-	}
-	if system != "" && !strings.EqualFold(system, model) {
-		parts = append(parts, system)
-	}
-	if len(parts) == 0 {
-		hwid := []rune(strings.TrimSpace(d.HWID))
-		if len(hwid) > 8 {
-			return string(hwid[:8]) + "…"
-		}
-		return string(hwid)
-	}
-	return strings.Join(parts, " · ")
-}
-
-func appName(userAgent string) string {
-	ua := strings.TrimSpace(userAgent)
-	if ua == "" {
-		return ""
-	}
-	if strings.HasPrefix(ua, "Mozilla/") {
-		return i18n.T("alert.app_browser")
-	}
-	name := ua
-	if end := strings.IndexAny(ua, "/ ;("); end > 0 {
-		name = ua[:end]
-	}
-	if r := []rune(name); len(r) > 24 {
-		name = string(r[:24])
-	}
-	return name
 }

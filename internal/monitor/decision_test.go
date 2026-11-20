@@ -2,6 +2,7 @@ package monitor
 
 import (
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -325,6 +326,11 @@ func TestGetUser_CachesPanelAnswer(t *testing.T) {
 	h.panel.users[11] = &api.UserData{
 		ID: 11, Username: "eleven", Email: &email, TelegramID: &tgID,
 		HWIDDeviceLimit: &limit, SubscriptionURL: "https://sub.example/11",
+		ActiveInternalSquads: []api.InternalSquad{
+			{UUID: "a1", Name: "Germany"},
+			{UUID: "a2", Name: "  "},
+			{UUID: "a3", Name: " Premium "},
+		},
 	}
 
 	u, err := h.m.LookupUser(t.Context(), 11)
@@ -334,8 +340,9 @@ func TestGetUser_CachesPanelAnswer(t *testing.T) {
 	want := api.CachedUser{
 		UserID: 11, Username: "eleven", Email: email, TelegramID: tgID,
 		HWIDDeviceLimit: 3, SubscriptionURL: "https://sub.example/11",
+		Squads: []string{"Germany", "Premium"}, SquadUUIDs: []string{"a1", "a2", "a3"},
 	}
-	if *u != want {
+	if !reflect.DeepEqual(*u, want) {
 		t.Errorf("пользователь = %+v, ожидалось %+v", *u, want)
 	}
 	if ttl := h.store.userTTL[11]; ttl != 90*time.Second {

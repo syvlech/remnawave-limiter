@@ -13,8 +13,9 @@ import (
 )
 
 const (
-	asnOrgMaxLen = 40
-	maxIPRows    = 30
+	asnOrgMaxLen  = 40
+	maxIPRows     = 30
+	maxSquadNames = 5
 )
 
 func FormatManualAlert(user *api.CachedUser, ips []api.ActiveIP, limit int, violationCount int64, loc *time.Location, subnetGroups int, subnetEnabled bool, asnGroups int, asnEnabled bool, ev *Evidence) string {
@@ -177,6 +178,30 @@ func writeUserRows(b *strings.Builder, user *api.CachedUser) {
 		b.WriteString(tableRow(i18n.T("alert.profile"),
 			"<a href=\""+escapeHTML(user.SubscriptionURL)+"\">"+escapeHTML(i18n.T("alert.open"))+"</a>"))
 	}
+	writeSquadRow(b, user.Squads)
+}
+
+func writeSquadRow(b *strings.Builder, squads []string) {
+	if len(squads) == 0 {
+		return
+	}
+	label := i18n.T("alert.squad")
+	if len(squads) > 1 {
+		label = i18n.T("alert.squads")
+	}
+	shown := squads
+	if len(shown) > maxSquadNames {
+		shown = shown[:maxSquadNames]
+	}
+	names := make([]string, len(shown))
+	for i, name := range shown {
+		names[i] = escapeHTML(name)
+	}
+	value := strings.Join(names, ", ")
+	if extra := len(squads) - len(shown); extra > 0 {
+		value += " " + escapeHTML(fmt.Sprintf(i18n.T("alert.and_more"), extra))
+	}
+	b.WriteString(tableRow(label, value))
 }
 
 func writeGroupingRows(b *strings.Builder, limit int, ips []api.ActiveIP, subnetGroups int, subnetEnabled bool, asnGroups int, asnEnabled bool) {

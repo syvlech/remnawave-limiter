@@ -414,6 +414,16 @@ func hasPanelError(err error, code string) bool {
 	return errors.As(err, &se) && se.Code == http.StatusBadRequest && strings.Contains(se.Body, `"`+code+`"`)
 }
 
+func IsNotFound(err error) bool {
+	var se *StatusError
+	return errors.As(err, &se) && se.Code == http.StatusNotFound
+}
+
+func IsUnavailable(err error) bool {
+	var se *StatusError
+	return errors.As(err, &se) && (se.Code == http.StatusForbidden || se.Code == http.StatusNotFound)
+}
+
 func IsAlreadyDisabled(err error) bool { return hasPanelError(err, panelErrAlreadyDisabled) }
 
 func IsAlreadyEnabled(err error) bool { return hasPanelError(err, panelErrAlreadyEnabled) }
@@ -635,6 +645,52 @@ func (c *Client) GetUserHWIDDevices(ctx context.Context, userID int64) ([]HWIDDe
 		return nil, fmt.Errorf("decode hwid devices: %w", err)
 	}
 	return resp.Response.Devices, nil
+}
+
+const newestFirst = `[{"id":"createdAt","desc":true},{"id":"userId","desc":false},{"id":"hwid","desc":false}]`
+
+func (c *Client) ListHWIDDevices(ctx context.Context, start, size int) ([]HWIDDevice, int, error) {
+	q := url.Values{}
+	q.Set("start", strconv.Itoa(start))
+	q.Set("size", strconv.Itoa(size))
+	q.Set("sorting", newestFirst)
+	data, err := c.doRequest(ctx, http.MethodGet, "/api/hwid/devices?"+q.Encode(), nil)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list hwid devices: %w", err)
+	}
+	var resp HWIDDevicesResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, 0, fmt.Errorf("decode hwid devices: %w", err)
+	}
+	return resp.Response.Devices, resp.Response.Total, nil
+}
+
+func (c *Client) FindHWIDDevices(ctx context.Context, hwid string, size int) ([]HWIDDevice, error) {
+	filters, err := json.Marshal([]map[string]string{{"id": "hwid", "value": hwid}})
+	if err != nil {
+		return nil, fmt.Errorf("find hwid devices: %w", err)
+	}
+	q := url.Values{}
+	q.Set("start", "0")
+	q.Set("size", strconv.Itoa(size))
+	q.Set("filters", string(filters))
+	q.Set("filterModes", `{"hwid":"equals"}`)
+	q.Set("sorting", newestFirst)
+	data, err := c.doRequest(ctx, http.MethodGet, "/api/hwid/devices?"+q.Encode(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("find hwid devices: %w", err)
+	}
+	var resp HWIDDevicesResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, fmt.Errorf("decode hwid devices: %w", err)
+	}
+	out := resp.Response.Devices[:0]
+	for _, d := range resp.Response.Devices {
+		if d.HWID == hwid {
+			out = append(out, d)
+		}
+	}
+	return out, nil
 }
 
 func (c *Client) GetUserSubscriptionHistory(ctx context.Context, userID int64) ([]SubscriptionRequest, error) {

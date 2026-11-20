@@ -1,6 +1,6 @@
 package version
 
-var Version = "5.0.0"
+var Version = "5.1.0"
 
 const Repo = "syvlech/remnawave-limiter"
 

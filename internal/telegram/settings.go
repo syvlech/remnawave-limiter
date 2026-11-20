@@ -114,6 +114,7 @@ var settingsGroups = []settingsGroup{
 	{id: "thresholds", keys: []string{"COOLDOWN", "VIOLATION_THRESHOLD", "VIOLATION_THRESHOLD_WINDOW"}},
 	{id: "grouping", keys: []string{"ASN_GROUPING", "SUBNET_GROUPING", "SUBNET_PREFIX_V4"}},
 	{id: "traffic", keys: []string{"TRAFFIC_MONITOR", "TRAFFIC_SPIKE_FACTOR", "TRAFFIC_SPIKE_MIN_GB", "TRAFFIC_HEAVY_GB", "TRAFFIC_HEAVY_DAYS"}},
+	{id: "hwid", keys: []string{"SHARED_HWID_MONITOR", "SHARED_HWID_HISTORY_DAYS"}},
 	{id: "service", keys: []string{"USER_CACHE_TTL", "DAILY_REPORT", "UPDATE_CHECK", "LOG_LEVEL"}},
 }
 
@@ -134,6 +135,7 @@ var settingPresets = map[string][]string{
 	"TRAFFIC_SPIKE_MIN_GB":       {"50", "100", "150", "200", "300"},
 	"TRAFFIC_HEAVY_GB":           {"0", "50", "100", "200"},
 	"TRAFFIC_HEAVY_DAYS":         {"3", "5", "7"},
+	"SHARED_HWID_HISTORY_DAYS":   {"0", "7", "30", "90"},
 }
 
 var minuteKeys = map[string]bool{

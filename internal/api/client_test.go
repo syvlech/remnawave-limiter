@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -178,6 +179,29 @@ func TestClient_GetUserByID(t *testing.T) {
 	}
 	if user.HWIDDeviceLimit == nil || *user.HWIDDeviceLimit != 3 {
 		t.Errorf("unexpected hwidDeviceLimit: %v", user.HWIDDeviceLimit)
+	}
+}
+
+func TestClient_GetUserByID_ActiveInternalSquads(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"response":{"id":42,"username":"u","hwidDeviceLimit":null,` +
+			`"activeInternalSquads":[` +
+			`{"uuid":"0a6e3a1c-4f1e-4b5e-9a37-2f1d1c9f7a11","name":"Germany"},` +
+			`{"uuid":"5d2c8b44-1c0b-4a4b-8f0e-6a3c2b1d0e22","name":"Premium"}]}}`))
+	}))
+	defer srv.Close()
+
+	user, err := NewClient(srv.URL, "test-token").GetUserByID(context.Background(), 42)
+	if err != nil {
+		t.Fatalf("GetUserByID: %v", err)
+	}
+	want := []InternalSquad{
+		{UUID: "0a6e3a1c-4f1e-4b5e-9a37-2f1d1c9f7a11", Name: "Germany"},
+		{UUID: "5d2c8b44-1c0b-4a4b-8f0e-6a3c2b1d0e22", Name: "Premium"},
+	}
+	if !reflect.DeepEqual(user.ActiveInternalSquads, want) {
+		t.Errorf("activeInternalSquads = %+v, ожидалось %+v", user.ActiveInternalSquads, want)
 	}
 }
 
@@ -454,6 +478,67 @@ func TestClient_GetUserHWIDDevices(t *testing.T) {
 	}
 }
 
+func TestClient_ListHWIDDevices(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/hwid/devices" || r.Method != http.MethodGet {
+			t.Errorf("неожиданный запрос %s %s", r.Method, r.URL.Path)
+		}
+		q := r.URL.Query()
+		if q.Get("start") != "200" || q.Get("size") != "100" {
+			t.Errorf("неверная страница: %s", r.URL.RawQuery)
+		}
+		if q.Get("sorting") != `[{"id":"createdAt","desc":true},{"id":"userId","desc":false},{"id":"hwid","desc":false}]` {
+			t.Errorf("новые устройства первыми, с однозначным порядком при равном времени: %q", q.Get("sorting"))
+		}
+		if q.Get("filters") != "" {
+			t.Errorf("список без фильтров не должен их передавать: %q", q.Get("filters"))
+		}
+		w.Write([]byte(`{"response":{"total":10496,"devices":[
+			{"hwid":"abc123def456","userId":42,"platform":"iOS","osVersion":"18.1","deviceModel":"iPhone15,2","userAgent":"Happ/2.7.0","requestIp":null,"createdAt":"2026-11-20T10:00:00.000Z","updatedAt":"2026-11-20T10:00:00.000Z"}
+		]}}`))
+	}))
+	defer srv.Close()
+
+	devices, total, err := fastClient(srv.URL).ListHWIDDevices(context.Background(), 200, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 10496 || len(devices) != 1 || devices[0].UserID != 42 || devices[0].HWID != "abc123def456" {
+		t.Fatalf("список разобран неверно: total=%d %+v", total, devices)
+	}
+}
+
+func TestClient_FindHWIDDevices(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		var filters []map[string]string
+		if err := json.Unmarshal([]byte(q.Get("filters")), &filters); err != nil || len(filters) != 1 ||
+			filters[0]["id"] != "hwid" || filters[0]["value"] != `ab"c=-1` {
+			t.Errorf("неверный фильтр: %q (%v)", q.Get("filters"), err)
+		}
+		if q.Get("filterModes") != `{"hwid":"equals"}` {
+			t.Errorf("нужен точный поиск по индексу, а не LIKE: %q", q.Get("filterModes"))
+		}
+		if q.Get("size") != "50" {
+			t.Errorf("size = %q", q.Get("size"))
+		}
+		w.Write([]byte(`{"response":{"total":3,"devices":[
+			{"hwid":"ab\"c=-1","userId":1,"createdAt":"2026-11-20T10:00:00.000Z","updatedAt":"2026-11-20T10:00:00.000Z"},
+			{"hwid":"ab\"c=-12","userId":2,"createdAt":"2026-11-20T10:00:00.000Z","updatedAt":"2026-11-20T10:00:00.000Z"},
+			{"hwid":"ab\"c=-1","userId":3,"createdAt":"2026-11-19T10:00:00.000Z","updatedAt":"2026-11-19T10:00:00.000Z"}
+		]}}`))
+	}))
+	defer srv.Close()
+
+	devices, err := fastClient(srv.URL).FindHWIDDevices(context.Background(), `ab"c=-1`, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(devices) != 2 || devices[0].UserID != 1 || devices[1].UserID != 3 {
+		t.Fatalf("должны остаться только точные совпадения HWID: %+v", devices)
+	}
+}
+
 func TestClient_GetUserSubscriptionHistory(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/users/42/subscription-request-history" {
@@ -654,5 +739,15 @@ func TestRetryAfter_HugeValueDoesNotOverflow(t *testing.T) {
 	h.Set("Retry-After", "18446744074")
 	if d := retryAfter(h); d != maxRetryAfter {
 		t.Errorf("retryAfter = %v, ожидалось %v", d, maxRetryAfter)
+	}
+}
+
+func TestIsNotFoundAndUnavailable(t *testing.T) {
+	wrap := func(code int) error { return fmt.Errorf("get: %w", &StatusError{Code: code}) }
+	if !IsNotFound(wrap(http.StatusNotFound)) || IsNotFound(wrap(http.StatusForbidden)) || IsNotFound(errors.New("x")) {
+		t.Error("IsNotFound распознаёт только 404, в том числе обёрнутую")
+	}
+	if !IsUnavailable(wrap(http.StatusForbidden)) || !IsUnavailable(wrap(http.StatusNotFound)) || IsUnavailable(wrap(http.StatusBadGateway)) {
+		t.Error("IsUnavailable — только 403 и 404")
 	}
 }

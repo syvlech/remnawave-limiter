@@ -48,6 +48,8 @@ var registry = []Field{
 	{Key: "TRAFFIC_SPIKE_MIN_GB", TitleKey: "setting.TRAFFIC_SPIKE_MIN_GB", Kind: KindInt},
 	{Key: "TRAFFIC_HEAVY_GB", TitleKey: "setting.TRAFFIC_HEAVY_GB", Kind: KindInt},
 	{Key: "TRAFFIC_HEAVY_DAYS", TitleKey: "setting.TRAFFIC_HEAVY_DAYS", Kind: KindInt},
+	{Key: "SHARED_HWID_MONITOR", TitleKey: "setting.SHARED_HWID_MONITOR", Kind: KindBool, Allowed: []string{"true", "false"}},
+	{Key: "SHARED_HWID_HISTORY_DAYS", TitleKey: "setting.SHARED_HWID_HISTORY_DAYS", Kind: KindInt},
 	{Key: "LOG_LEVEL", TitleKey: "setting.LOG_LEVEL", Kind: KindEnum, Allowed: LogLevels},
 }
 
@@ -145,6 +147,10 @@ func Display(cfg *Config, key string) string {
 		return strconv.Itoa(cfg.TrafficHeavyGB)
 	case "TRAFFIC_HEAVY_DAYS":
 		return strconv.Itoa(cfg.TrafficHeavyDays)
+	case "SHARED_HWID_MONITOR":
+		return strconv.FormatBool(cfg.SharedHWIDMonitor)
+	case "SHARED_HWID_HISTORY_DAYS":
+		return strconv.Itoa(cfg.SharedHWIDHistoryDays)
 	case "LOG_LEVEL":
 		return cfg.LogLevel
 	}

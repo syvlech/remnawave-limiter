@@ -154,6 +154,64 @@ func TestFormatSoftAlert(t *testing.T) {
 	assertBalancedHTML(t, result)
 }
 
+func TestFormatAlerts_SquadRow(t *testing.T) {
+	ips := []api.ActiveIP{{IP: "1.1.1.1", NodeName: "n", NodeUUID: "n"}}
+	cases := []struct {
+		name   string
+		squads []string
+		want   string
+	}{
+		{"один сквад", []string{"Germany"}, row("👥 Сквад", "Germany")},
+		{"несколько сквадов", []string{"Germany", "Premium"}, row("👥 Сквады", "Germany, Premium")},
+		{"экранирование", []string{`<b>x</b> & "y"`}, row("👥 Сквад", "&lt;b&gt;x&lt;/b&gt; &amp; &quot;y&quot;")},
+		{"длинный список обрезается", []string{"s1", "s2", "s3", "s4", "s5", "s6", "s7"},
+			row("👥 Сквады", "s1, s2, s3, s4, s5 … и ещё 2")},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			user := &api.CachedUser{UserID: 1, Username: "u", SubscriptionURL: "https://sub/1", Squads: c.squads}
+			outs := map[string]string{
+				"manual":  FormatManualAlert(user, ips, 1, 1, time.UTC, 0, false, 0, false, nil),
+				"auto":    FormatAutoAlert(user, ips, 1, 30, 1, time.UTC, 0, false, 0, false, nil),
+				"soft":    FormatSoftAlert(user, ips, 1, 3, time.UTC, 0, false, 0, false, nil),
+				"traffic": FormatTrafficAlert(TrafficAlert{User: user, Bytes: 1, Day: time.Now(), At: time.Now()}, time.UTC),
+			}
+			for kind, out := range outs {
+				if !strings.Contains(out, c.want) {
+					t.Errorf("%s: нет строки %q:\n%s", kind, c.want, out)
+				}
+				profile := strings.Index(out, "🔗 Подписка")
+				if squad := strings.Index(out, "👥"); profile < 0 || squad < profile {
+					t.Errorf("%s: строка сквада должна идти сразу после ссылки на подписку:\n%s", kind, out)
+				}
+				assertBalancedHTML(t, out)
+			}
+		})
+	}
+}
+
+func TestFormatManualAlert_NoSquadsNoRow(t *testing.T) {
+	for _, squads := range [][]string{nil, {}} {
+		user := &api.CachedUser{UserID: 1, Username: "u", Squads: squads}
+		out := FormatManualAlert(user, []api.ActiveIP{{IP: "1.1.1.1"}}, 1, 1, time.UTC, 0, false, 0, false, nil)
+		if strings.Contains(out, "👥") {
+			t.Errorf("без сквадов строки быть не должно (%#v):\n%s", squads, out)
+		}
+	}
+}
+
+func TestFormatManualAlert_SquadRowEnglishAndChinese(t *testing.T) {
+	defer i18n.SetLanguage("ru")
+	user := &api.CachedUser{UserID: 1, Username: "u", Squads: []string{"A", "B"}}
+	for lang, want := range map[string]string{"en": row("👥 Squads", "A, B"), "zh": row("👥 内部分组", "A, B")} {
+		i18n.SetLanguage(lang)
+		out := FormatManualAlert(user, nil, 1, 1, time.UTC, 0, false, 0, false, nil)
+		if !strings.Contains(out, want) {
+			t.Errorf("%s: нет строки %q:\n%s", lang, want, out)
+		}
+	}
+}
+
 func TestFormatManualAlert_English(t *testing.T) {
 	i18n.SetLanguage("en")
 	defer i18n.SetLanguage("ru")

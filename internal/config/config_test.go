@@ -37,6 +37,7 @@ func clearEnv() {
 		"UPDATE_CHECK",
 		"TRAFFIC_MONITOR", "TRAFFIC_SPIKE_FACTOR", "TRAFFIC_SPIKE_MIN_GB",
 		"TRAFFIC_HEAVY_GB", "TRAFFIC_HEAVY_DAYS", "TRAFFIC_IGNORED_NODE_UUIDS",
+		"SHARED_HWID_MONITOR", "SHARED_HWID_SQUAD_UUIDS", "SHARED_HWID_HISTORY_DAYS",
 	}
 	for _, v := range vars {
 		os.Unsetenv(v)
@@ -1043,5 +1044,44 @@ func TestValidate_TrafficBounds(t *testing.T) {
 	defer clearEnv()
 	if _, err := LoadConfig(""); err != nil {
 		t.Errorf("граничные значения должны проходить: %v", err)
+	}
+}
+
+func TestLoadConfig_SharedHWID(t *testing.T) {
+	clearEnv()
+	setRequiredEnv()
+	defer clearEnv()
+
+	cfg, err := LoadConfig("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SharedHWIDMonitor || len(cfg.SharedHWIDSquadUUIDs) != 0 || cfg.SharedHWIDHistoryDays != 30 {
+		t.Fatalf("по умолчанию поиск общих HWID выключен, без сквадов, история 30 дней: %+v", cfg)
+	}
+	for value, ok := range map[string]bool{"0": true, "365": true, "-1": false, "366": false} {
+		os.Setenv("SHARED_HWID_HISTORY_DAYS", value)
+		if _, err := LoadConfig(""); (err == nil) != ok {
+			t.Errorf("SHARED_HWID_HISTORY_DAYS=%s: допустимо %v, ошибка %v", value, ok, err)
+		}
+	}
+	os.Unsetenv("SHARED_HWID_HISTORY_DAYS")
+
+	os.Setenv("SHARED_HWID_MONITOR", "true")
+	os.Setenv("SHARED_HWID_SQUAD_UUIDS", " 47EFC25D-9988-47C5-9A79-2C6A5B4ADD22 , 130aa6eb-51ae-4149-93ec-b78090559ff4,")
+	cfg, err = LoadConfig("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"47efc25d-9988-47c5-9a79-2c6a5b4add22", "130aa6eb-51ae-4149-93ec-b78090559ff4"}
+	if !cfg.SharedHWIDMonitor || !reflect.DeepEqual(cfg.SharedHWIDSquadUUIDs, want) {
+		t.Errorf("сквады должны приводиться к нижнему регистру: %v", cfg.SharedHWIDSquadUUIDs)
+	}
+
+	for _, bad := range []string{"Trial", "47efc25d-9988-47c5-9a79-2c6a5b4add2", "47efc25d99884 7c59a792c6a5b4add22"} {
+		os.Setenv("SHARED_HWID_SQUAD_UUIDS", bad)
+		if _, err := LoadConfig(""); err == nil || !strings.Contains(err.Error(), "SHARED_HWID_SQUAD_UUIDS") {
+			t.Errorf("%q не UUID и должен отклоняться с именем параметра, получено %v", bad, err)
+		}
 	}
 }

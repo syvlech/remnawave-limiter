@@ -3,6 +3,7 @@ package cache
 import (
 	"context"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -113,6 +114,7 @@ func TestCache_UserData(t *testing.T) {
 		TelegramID:      789,
 		HWIDDeviceLimit: 3,
 		SubscriptionURL: "https://example.com/sub",
+		Squads:          []string{"Germany", "Premium"},
 	}
 
 	got, err := c.GetUser(ctx, 456)
@@ -151,6 +153,9 @@ func TestCache_UserData(t *testing.T) {
 	}
 	if got.SubscriptionURL != user.SubscriptionURL {
 		t.Errorf("SubscriptionURL = %q, want %q", got.SubscriptionURL, user.SubscriptionURL)
+	}
+	if strings.Join(got.Squads, "|") != "Germany|Premium" {
+		t.Errorf("Squads = %v, ожидалось [Germany Premium]", got.Squads)
 	}
 }
 
@@ -898,5 +903,156 @@ func TestCache_TrimStatsUsernames_KeepsConcurrentlyRecorded(t *testing.T) {
 	got := statsUsernames(t, c)
 	if len(got) != writers*perWriter {
 		t.Errorf("очистка потеряла свежие имена: осталось %d из %d", len(got), writers*perWriter)
+	}
+}
+
+func TestCache_HWIDState(t *testing.T) {
+	c := setupTestCache(t)
+	ctx := context.Background()
+
+	if st, err := c.GetHWIDState(ctx); err != nil || !st.Watermark.IsZero() || !st.Polled.IsZero() {
+		t.Fatalf("без состояния оба времени нулевые: %+v, %v", st, err)
+	}
+	want := HWIDState{
+		Watermark: time.Date(2026, 11, 20, 10, 15, 30, 123000000, time.UTC),
+		Polled:    time.Date(2026, 11, 20, 10, 20, 0, 0, time.UTC),
+	}
+	if err := c.SetHWIDState(ctx, want); err != nil {
+		t.Fatal(err)
+	}
+	got, err := c.GetHWIDState(ctx)
+	if err != nil || !got.Watermark.Equal(want.Watermark) || !got.Polled.Equal(want.Polled) {
+		t.Fatalf("состояние должно сохраняться с миллисекундами: %+v, %v", got, err)
+	}
+	if ttl := c.client.TTL(ctx, keyHWIDState).Val(); ttl != -1 {
+		t.Errorf("состояние не должно истекать, TTL = %v", ttl)
+	}
+}
+
+func TestCache_HWIDHistory(t *testing.T) {
+	c := setupTestCache(t)
+	ctx := context.Background()
+	seen := time.Now().Add(-time.Hour).Truncate(time.Second)
+
+	if err := c.SeedHWIDHistory(ctx, []HWIDRecord{
+		{HWID: "hwid-aaaaaaaaaa", UserID: 1, SeenAt: seen},
+		{HWID: "hwid-aaaaaaaaaa", UserID: 2, SeenAt: seen},
+		{HWID: "hwid-bbbbbbbbbb", UserID: 3, SeenAt: seen},
+	}, 2*time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if ttl := c.client.TTL(ctx, prefixHWIDHistory+"hwid-bbbbbbbbbb").Val(); ttl <= 50*time.Minute || ttl > time.Hour {
+		t.Errorf("запись из панели живёт срок хранения от появления устройства (~1 ч), получено %v", ttl)
+	}
+	if err := c.RecordHWID(ctx, HWIDRecord{HWID: "hwid-aaaaaaaaaa", UserID: 2, Username: "second", TelegramID: 777, SeenAt: seen.Add(time.Minute)}, 3*time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.SeedHWIDHistory(ctx, []HWIDRecord{{HWID: "hwid-aaaaaaaaaa", UserID: 2, SeenAt: seen}}, 2*time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if ttl := c.client.TTL(ctx, prefixHWIDHistory+"hwid-aaaaaaaaaa").Val(); ttl <= 2*time.Hour+50*time.Minute {
+		t.Errorf("повторное заполнение из панели не укорачивает TTL, получено %v", ttl)
+	}
+
+	hist, err := c.GetHWIDHistory(ctx, "hwid-aaaaaaaaaa")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hist) != 2 || hist[1].Username != "" || !hist[1].SeenAt.Equal(seen) {
+		t.Fatalf("история HWID разобрана неверно: %+v", hist)
+	}
+	if r := hist[2]; r.Username != "second" || r.TelegramID != 777 || !r.SeenAt.Equal(seen.Add(time.Minute)) || r.HWID != "hwid-aaaaaaaaaa" {
+		t.Errorf("повторное заполнение из панели не должно затирать полную запись: %+v", r)
+	}
+
+	known, err := c.HWIDRecorded(ctx, []HWIDRecord{
+		{HWID: "hwid-aaaaaaaaaa", UserID: 1},
+		{HWID: "hwid-bbbbbbbbbb", UserID: 1},
+		{HWID: "hwid-cccccccccc", UserID: 9},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !known[0] || known[1] || known[2] {
+		t.Errorf("HWIDRecorded = %v, ожидалось [true false false]", known)
+	}
+	if empty, err := c.GetHWIDHistory(ctx, "hwid-zzzzzzzzzz"); err != nil || len(empty) != 0 {
+		t.Errorf("для неизвестного HWID история пустая: %v, %v", empty, err)
+	}
+}
+
+func TestCache_HWIDReported(t *testing.T) {
+	c := setupTestCache(t)
+	ctx := context.Background()
+
+	if got, err := c.GetHWIDReported(ctx, 5); err != nil || len(got) != 0 {
+		t.Fatalf("без отметок множество пустое: %v, %v", got, err)
+	}
+	if err := c.MarkHWIDReported(ctx, 5, nil, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.MarkHWIDReported(ctx, 5, []int64{1, 2}, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.MarkHWIDReported(ctx, 5, []int64{2, 3}, 2*time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	got, err := c.GetHWIDReported(ctx, 5)
+	if err != nil || len(got) != 3 || !got[1] || !got[2] || !got[3] {
+		t.Fatalf("отметки пар должны накапливаться: %v, %v", got, err)
+	}
+	if ttl := c.client.TTL(ctx, prefixHWIDReported+"5").Val(); ttl <= time.Hour || ttl > 2*time.Hour {
+		t.Errorf("TTL продлевается при каждой отметке, получено %v", ttl)
+	}
+	if other, _ := c.GetHWIDReported(ctx, 6); len(other) != 0 {
+		t.Errorf("отметки одного пользователя не видны другому: %v", other)
+	}
+}
+
+func TestCache_RecordHWIDPrunesOldMembers(t *testing.T) {
+	c := setupTestCache(t)
+	ctx := context.Background()
+	now := time.Now().Truncate(time.Second)
+
+	if err := c.SeedHWIDHistory(ctx, []HWIDRecord{
+		{HWID: "hwid-prune-00000", UserID: 1, SeenAt: now.Add(-50 * time.Hour)},
+		{HWID: "hwid-prune-00000", UserID: 2, SeenAt: now.Add(-time.Hour)},
+	}, 100*time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.RecordHWID(ctx, HWIDRecord{HWID: "hwid-prune-00000", UserID: 3, SeenAt: now.Add(-30 * time.Hour)}, 24*time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	hist, err := c.GetHWIDHistory(ctx, "hwid-prune-00000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, old := hist[1]; old || len(hist) != 2 {
+		t.Errorf("записи старше срока удаляются, новая остаётся даже если старая сама: %v", hist)
+	}
+	if ttl := c.client.TTL(ctx, prefixHWIDHistory+"hwid-prune-00000").Val(); ttl <= 23*time.Hour || ttl > 24*time.Hour {
+		t.Errorf("TTL ключа — срок хранения, получено %v", ttl)
+	}
+	c.client.HSet(ctx, prefixHWIDHistory+"hwid-prune-00000", "9", "not json")
+	if err := c.RecordHWID(ctx, HWIDRecord{HWID: "hwid-prune-00000", UserID: 4, SeenAt: now}, 24*time.Hour); err != nil {
+		t.Fatalf("испорченная запись не ломает запись: %v", err)
+	}
+}
+
+func TestCache_UnmarkHWIDReported(t *testing.T) {
+	c := setupTestCache(t)
+	ctx := context.Background()
+	if err := c.MarkHWIDReported(ctx, 5, []int64{1, 2, 3}, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.UnmarkHWIDReported(ctx, 5, []int64{2, 3}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.UnmarkHWIDReported(ctx, 5, nil); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := c.GetHWIDReported(ctx, 5)
+	if len(got) != 1 || !got[1] {
+		t.Errorf("снимаются только указанные пары: %v", got)
 	}
 }

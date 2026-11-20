@@ -671,23 +671,7 @@ func (m *Monitor) getUser(ctx context.Context, cfg *config.Config, userID int64)
 		return nil, fmt.Errorf("api get user: %w", err)
 	}
 
-	cu := &api.CachedUser{
-		UserID:   userID,
-		Username: userData.Username,
-	}
-
-	if userData.Email != nil {
-		cu.Email = *userData.Email
-	}
-	if userData.TelegramID != nil {
-		cu.TelegramID = *userData.TelegramID
-	}
-	if userData.HWIDDeviceLimit != nil {
-		cu.HWIDDeviceLimit = *userData.HWIDDeviceLimit
-	} else {
-		cu.HWIDDeviceLimit = -1
-	}
-	cu.SubscriptionURL = userData.SubscriptionURL
+	cu := api.NewCachedUser(userID, userData)
 
 	ttl := time.Duration(cfg.UserCacheTTL) * time.Second
 	if err := m.cache.SetUser(ctx, userID, cu, ttl); err != nil {

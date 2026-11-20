@@ -105,39 +105,6 @@ func TestBuildDeviceEvidence_SortsByActivity(t *testing.T) {
 	}
 }
 
-func TestDeviceName(t *testing.T) {
-	for _, tc := range []struct {
-		dev  api.HWIDDevice
-		want string
-	}{
-		{api.HWIDDevice{DeviceModel: "Pixel 8", Platform: "Android", OSVersion: "14"}, "Pixel 8 · Android 14"},
-		{api.HWIDDevice{Platform: "Windows", OSVersion: "Windows 11"}, "Windows 11"},
-		{api.HWIDDevice{Platform: "macOS"}, "macOS"},
-		{api.HWIDDevice{DeviceModel: "iPad"}, "iPad"},
-		{api.HWIDDevice{HWID: "short"}, "short"},
-	} {
-		if got := deviceName(tc.dev); got != tc.want {
-			t.Errorf("deviceName(%+v) = %q, ожидалось %q", tc.dev, got, tc.want)
-		}
-	}
-}
-
-func TestAppName(t *testing.T) {
-	for ua, want := range map[string]string{
-		"Happ/2.7.0/ios CFNetwork/1.0": "Happ",
-		"v2rayNG/1.9.30":               "v2rayNG",
-		"sing-box 1.10.1":              "sing-box",
-		"Streisand;iOS":                "Streisand",
-		"Mozilla/5.0 (iPhone)":         "браузер",
-		"  ":                           "",
-		"averyveryverylongclientname-without-separators": "averyveryverylongclientn",
-	} {
-		if got := appName(ua); got != want {
-			t.Errorf("appName(%q) = %q, ожидалось %q", ua, got, want)
-		}
-	}
-}
-
 func TestCollectEvidence_PartialFailureAndWarnOnce(t *testing.T) {
 	var logs bytes.Buffer
 	logger := logrus.New()

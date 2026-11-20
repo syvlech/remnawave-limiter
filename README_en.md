@@ -18,6 +18,7 @@ Monitors simultaneous user connections via the panel API: collects IPs from all 
 - **Statistics & reports** — `/stats` command (24h/week + top-5 violators) and a daily report to the chat
 - **Update check** — once a day compares the running version with the latest GitHub release and announces a new one in the chat
 - **Traffic monitoring** — compares each user's daily traffic with their own usual volume: spikes and persistently high traffic, with no per-user requests
+- **Shared HWID** — an alert when a new user's device has already been seen on another account, which is how repeated trials from the same phone are found
 - **Runtime settings** via `/settings` — change parameters on the fly without restart (stored in Redis)
 - **Whitelist** of users and IP/CIDR, cooldown, cache, timezone selection, ru/en/zh
 - **Liveness `/healthz`** (optional, via `HEALTH_ADDR`) for Docker/orchestrator healthchecks
@@ -45,7 +46,7 @@ A failing node does not abort the cycle: the check proceeds on the remaining one
 ## Requirements
 
 - Docker and Docker Compose
-- **Remnawave 3.0.0+** with an API token (scopes `connections:*`, `users:*` and `nodes:read`; for the HWID block in alerts also `hwid-user-devices:read`, for traffic monitoring `bandwidth-stats:node-usage`)
+- **Remnawave 3.0.0+** with an API token (scopes `connections:*`, `users:*` and `nodes:read`; for the HWID block in alerts and the shared HWID search also `hwid-user-devices:read`, for traffic monitoring `bandwidth-stats:node-usage`)
 - Telegram bot ([@BotFather](https://t.me/BotFather))
 
 <details>
@@ -58,13 +59,14 @@ If you want the token to hold only what limiter actually calls:
 | `nodes:list` | `GET /api/nodes` | list of nodes to poll — without it the cycle never starts |
 | `connections:by-node` | `POST /api/connections/by-node/{nodeUuid}` | starts IP collection on a node |
 | `connections:by-node-result` | `GET /api/connections/by-node/{jobId}` | collection result |
-| `users:by-id` | `GET /api/users/{id}` | device limit and user data |
+| `users:by-id` | `GET /api/users/{id}` | device limit, user data and internal squads |
 | `users:disable` | `POST /api/users/{id}/actions/disable` | disabling the subscription |
 | `users:enable` | `POST /api/users/{id}/actions/enable` | the "Enable" button and timed restore |
 | `connections:drop` | `POST /api/connections/drop` | only the "Drop connections" button: `manual` mode alerts, soft warnings (`AUTO_NOTIFY_SOFT`) and traffic alerts |
 | `users:subscription-request-history` | `GET /api/users/{id}/subscription-request-history` | the "Subscription requests" block in alerts; optional |
 | `hwid-user-devices:list-by-user` | `GET /api/hwid/devices/{userId}` | the "HWID devices" block in alerts; optional |
 | `bandwidth-stats:node-usage` | `POST /api/bandwidth-stats/nodes/usage` | traffic monitoring (`TRAFFIC_MONITOR`); optional |
+| `hwid-user-devices:list` | `GET /api/hwid/devices` | shared HWID search (`SHARED_HWID_MONITOR`); optional |
 
 Read access is enough for nodes: `nodes:*` would also grant write access (restarting and disabling nodes, editing profiles and inbounds), which limiter does not need.
 
@@ -168,6 +170,9 @@ All settings via `.env` or environment variables.
 | `TRAFFIC_HEAVY_GB` | `200` | Daily traffic from which a day counts as heavy, GB. `0` turns the rule off. Editable in `/settings` |
 | `TRAFFIC_HEAVY_DAYS` | `5` | How many heavy days out of the last 7 trigger the persistently high traffic alert (`1..7`). Editable in `/settings` |
 | `TRAFFIC_IGNORED_NODE_UUIDS` | — | Comma-separated node UUIDs whose traffic is not counted (on top of `IGNORED_NODE_UUIDS`), for example nodes where heavy traffic is normal |
+| `SHARED_HWID_MONITOR` | `false` | Alert when a new device's HWID has already been seen on another account. See [Shared HWID](#shared-hwid-shared_hwid_monitortrue). Can be toggled at runtime via `/settings` |
+| `SHARED_HWID_SQUAD_UUIDS` | — | Comma-separated internal squad UUIDs: only new devices of users in these squads trigger an alert (for example, the trial squad). Matches are searched among all users. Empty means every user is checked. Restart required |
+| `SHARED_HWID_HISTORY_DAYS` | `30` | How many days the limiter remembers the HWID devices it has seen (`0..365`), to find accounts already deleted from the panel. `0` means no history of its own: only accounts still in the panel are compared. See [Shared HWID](#shared-hwid-shared_hwid_monitortrue). Can be changed in `/settings` |
 | `HEALTH_ADDR` | — | Address of the HTTP liveness endpoint `/healthz` (e.g. `:8080`). Empty = disabled |
 | `LOG_LEVEL` | `info` | Log verbosity: `trace`, `debug`, `info`, `warn`, `error`. At `info` — one summary line per check cycle plus every action taken; `debug` adds the per-IP breakdown and Telegram transport details. Changeable at runtime via `/settings` |
 | `LOG_FORMAT` | `text` | `text` for humans, `json` for log shippers (Loki, ELK). Restart required to change |
@@ -212,11 +217,11 @@ Available to admins from `TELEGRAM_ADMIN_IDS` only. Registered in the bot's comm
 
 ### Runtime settings (`/settings`)
 
-Source priority: **Redis override > `.env` / environment > defaults**. Changes apply on the fly (e.g. `CHECK_INTERVAL` resets the ticker). Structural and secret keys (API URL/token, all `TELEGRAM_*`, `REDIS_URL`, `TIMEZONE`, `LANGUAGE`, `WEBHOOK_*`, `IP_WHITELIST`, `IGNORED_NODE_UUIDS`, `MAXMIND_*`, `DAILY_REPORT_TIME`, `HEALTH_ADDR`, `LOG_FORMAT`, `REMNAWAVE_COOKIES`, `REMNAWAVE_HEADERS`, `WHITELIST_USER_IDS`, `ASN_DATABASE_PATH`, `TRAFFIC_IGNORED_NODE_UUIDS`) require an `.env` change + restart. "Reset to .env" (per key, or all with a confirmation) removes the override.
+Source priority: **Redis override > `.env` / environment > defaults**. Changes apply on the fly (e.g. `CHECK_INTERVAL` resets the ticker). Structural and secret keys (API URL/token, all `TELEGRAM_*`, `REDIS_URL`, `TIMEZONE`, `LANGUAGE`, `WEBHOOK_*`, `IP_WHITELIST`, `IGNORED_NODE_UUIDS`, `MAXMIND_*`, `DAILY_REPORT_TIME`, `HEALTH_ADDR`, `LOG_FORMAT`, `REMNAWAVE_COOKIES`, `REMNAWAVE_HEADERS`, `WHITELIST_USER_IDS`, `ASN_DATABASE_PATH`, `TRAFFIC_IGNORED_NODE_UUIDS`, `SHARED_HWID_SQUAD_UUIDS`) require an `.env` change + restart. "Reset to .env" (per key, or all with a confirmation) removes the override.
 
 The menu lives in a single message that is redrawn in place:
 
-- **Main screen** — a table of every setting grouped by section (🎯 Detection, 🛡 Actions, ⏳ Thresholds and cooldowns, 🌐 Grouping, 📈 Traffic, 🧰 Service); ♻️ marks values changed in the bot.
+- **Main screen** — a table of every setting grouped by section (🎯 Detection, 🛡 Actions, ⏳ Thresholds and cooldowns, 🌐 Grouping, 📈 Traffic, 🔁 Shared HWID, 🧰 Service); ♻️ marks values changed in the bot.
 - **Section** — values, a hint for each setting and buttons: flags toggle with one tap (enabled ones are green), the rest open the edit screen.
 - **Edit screen** — current value, its source (`.env` or the bot), the variable name, quick presets (minutes are shown in readable form, `0` = "forever") and typing your own value as a message. A validation error is shown on the same screen and you can retry right away.
 
@@ -265,6 +270,54 @@ With 50,000 subscriptions (about 10 times as many active users) expect 1–4 s f
 
 It needs the `bandwidth-stats:node-usage` scope; without it the limiter logs one warning and skips the polls. If user traffic records are turned off in the panel (`SERVICE_DISABLE_USER_USAGE_RECORDS=true`), there is no data, and the limiter warns about it.
 
+### Shared HWID (`SHARED_HWID_MONITOR=true`)
+
+Some customers create a new account to get the trial again but connect from the same phone. The client app sends the device HWID to the panel, and the second account gets the same one. The limiter notices this and sends a “👥 One HWID on several accounts” alert.
+
+Every 5 minutes the limiter makes one request for the newest HWID devices (`GET /api/hwid/devices`, newest first) and goes through the ones that appeared since the last poll. For each new device it looks up the user. If `SHARED_HWID_SQUAD_UUIDS` is set, only users in those squads are checked further, for example users in the trial squad. For them the limiter looks for the same HWID on other accounts: with an exact lookup in the panel (indexed, no `LIKE`) and in its own history in Redis. Only an account on which this device appeared earlier counts as a match, so the alert is always about the newer account. The alert goes out when at least one such account is found. Matches are searched among all users, not only in those squads, so a paying customer who took a trial on a new account shows up too.
+
+**Why its own history.** Many bots delete a trial subscription as soon as it ends, and the panel deletes the user's devices along with the user. By the time the same phone shows up on a new account, the old one is gone from the panel. So the limiter keeps every device it has seen for `SHARED_HWID_HISTORY_DAYS` days, 30 by default (`hwid:seen:{hwid}`: account id, name and Telegram ID, when the device appeared). Older records are ignored and expire from Redis on their own. In the alert such an account is marked “🗑 deleted from the panel”. When first enabled, the limiter fills the history from the panel without alerts: it reads the devices of the last `SHARED_HWID_HISTORY_DAYS` days in pages of 1000 and stops at older ones. On a panel with 10,500 devices the last 30 days held about 3,000 devices, which took 3 requests in ~1.3 s. The same happens if the limiter has not polled the panel for more than a day, so that a downtime does not end in a burst of old alerts.
+
+With `SHARED_HWID_HISTORY_DAYS=0` there is no history of its own: the limiter compares a new device only with accounts that still exist in the panel, and the first start is one request. Devices are remembered for 7 hours, only so they are not handled twice. If the bot deletes a trial subscription when it ends, a repeated trial cannot be found in this mode.
+
+**What does not count as a match.**
+
+- Accounts with the same Telegram ID as the new one. That is one bot customer with several subscriptions; on a real panel this covers more than half of the shared HWIDs. The alert says so when such accounts are hidden.
+- Whitelisted users, on either side.
+
+The alert goes to the same chat with the same buttons as the device-limit alert, and the buttons act on the new account. The alert shows:
+
+- the new account: subscription status, when it was created, squads;
+- the device and app, the HWID;
+- a table of the other accounts with this HWID: status and squads, when the account was created, when the device appeared on it. A deleted account is marked “🗑 deleted from the panel”, and an account that removed this device itself is marked “device removed”.
+
+Each pair of accounts gives one alert per 30 days (`hwid:reported:{id}`): if a pair shares several devices, say a phone and a tablet, the second one does not give a new alert. At most 20 alerts go out per poll; the rest follow on the next polls. If more than ~540 devices appeared since the last poll (for example, after a downtime shorter than a day), they are recorded in the history without alerts and a warning goes to the log, so a backlog never turns into thousands of requests in a row. If Telegram or the panel did not answer, the device is handled again on the next poll. If it still cannot be handled after 6 hours, it is recorded in the history without an alert and a warning goes to the log. This alert is not sent to the webhook. The first poll runs 90 seconds after start.
+
+**Panel load.** One list request every 5 minutes, as fast as the panel's own “HWID Inspector” page. On top of that, the limiter looks up the user once for each new device. For a user in the watched squads it adds an exact HWID lookup and a lookup of every account found. Measured on a panel with about 10,500 devices and about 150 new ones a day:
+
+- list request: ~0.3 s;
+- filling the history on first start: 3 requests in ~1.3 s (30 days, ~3,000 devices);
+- per day: about 600 light requests when every user is checked and about 480 with a single trial squad (288 of them are the list polls);
+- alerts per day: 6 without a squad filter, 0 with the trial squad filter;
+- history in Redis: about 0.6 MB (estimated at ~0.2 KB per device).
+
+**A large panel.** On a panel with about 100,000 subscriptions and ~1% trials a day, the load on the panel itself stays small. This is an estimate from the measurements above, not a measurement:
+
+- ~240,000 devices and ~3,500 new ones a day;
+- about 5,500 light requests a day, roughly one every 15 s;
+- a poll handles about 12 new devices with a few seconds of sequential requests.
+
+Two things matter more:
+
+- **The first history fill.** About 100 pages for 30 days: a few minutes of work for the panel database, once and after a downtime longer than a day.
+- **Redis memory.** ~20 MB at 30 days and ~65 MB at 90. `docker-compose.yml` sets no memory limit for Valkey, so the AOF file grows with it.
+
+Pick the retention to match how soon people come back for another trial.
+
+**Limits.** The HWID comes from the client app. Devices are recorded only when the HWID device limit is enabled in the panel. On some platforms reinstalling the app changes the HWID, and it can be spoofed on purpose. So the alert catches those who hide nothing, and it is a reason to check the account, not proof.
+
+It needs the `hwid-user-devices:list` scope; without it the limiter logs one warning and skips the polls.
+
 ### Manual mode (`ACTION_MODE=manual`)
 
 On excess the bot sends an alert with buttons:
@@ -274,6 +327,7 @@ On excess the bot sends an alert with buttons:
 ┌──────────────────────┬──────────────────────┐
 │ 👤 User              │ username123          │
 │ 🔗 Subscription      │ open                 │
+│ 👥 Squad             │ Germany              │
 │ 📊 Limit             │ 3                    │
 │ 📡 Detected          │ 5 IP · 2 ASN         │
 │ 🚦 Over limit        │ +2                   │
@@ -291,6 +345,8 @@ On excess the bot sends an alert with buttons:
 [🔒 Disable permanently] [🔒 Disable for 10 min]  ← the second one if AUTO_DISABLE_DURATION > 0
 [🔇 Ignore for 15 min]                            ← if IGNORE_DURATION > 0, otherwise "🔇 Ignore"
 ```
+
+“👥 Squad” lists the subscription's internal squads (`activeInternalSquads`) from the same `GET /api/users/{id}` request, so the panel gets no extra calls. With several squads the row is called “Squads” and shows up to five names. A subscription without squads has no such row. Traffic alerts carry the same row.
 
 **Sharing evidence.** The alert's main table has two summary rows, and two collapsed blocks with the details follow the IP list:
 

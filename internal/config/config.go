@@ -70,7 +70,12 @@ type Config struct {
 	TrafficHeavyGB          int
 	TrafficHeavyDays        int
 	TrafficIgnoredNodeUUIDs []string
-	HealthAddr              string
+
+	SharedHWIDMonitor     bool
+	SharedHWIDSquadUUIDs  []string
+	SharedHWIDHistoryDays int
+
+	HealthAddr string
 }
 
 var (
@@ -86,6 +91,7 @@ const (
 	MaxSeconds            = 365 * 24 * 3600
 	MaxMinutes            = 365 * 24 * 60
 	MaxTrafficGB          = 1_000_000
+	MaxHistoryDays        = 365
 )
 
 func LoadConfig(envPath string) (*Config, error) {
@@ -206,6 +212,9 @@ func LoadConfigWithOverrides(envPath string, overrides map[string]string) (*Conf
 		TrafficHeavyGB:           l.getEnvInt("TRAFFIC_HEAVY_GB", 200),
 		TrafficHeavyDays:         l.getEnvInt("TRAFFIC_HEAVY_DAYS", 5),
 		TrafficIgnoredNodeUUIDs:  parseLowercaseList(l.getEnv("TRAFFIC_IGNORED_NODE_UUIDS", "")),
+		SharedHWIDMonitor:        l.getEnvBool("SHARED_HWID_MONITOR", false),
+		SharedHWIDSquadUUIDs:     parseLowercaseList(l.getEnv("SHARED_HWID_SQUAD_UUIDS", "")),
+		SharedHWIDHistoryDays:    l.getEnvInt("SHARED_HWID_HISTORY_DAYS", 30),
 		HealthAddr:               l.getEnv("HEALTH_ADDR", ""),
 	}
 
@@ -266,6 +275,7 @@ func (cfg *Config) Validate() error {
 		{"AUTO_DISABLE_DURATION", cfg.AutoDisableDuration},
 		{"IGNORE_DURATION", cfg.IgnoreDuration},
 		{"TRAFFIC_HEAVY_GB", cfg.TrafficHeavyGB},
+		{"SHARED_HWID_HISTORY_DAYS", cfg.SharedHWIDHistoryDays},
 	}
 	for _, p := range nonNegative {
 		if p.value < 0 {
@@ -287,6 +297,7 @@ func (cfg *Config) Validate() error {
 		{"IGNORE_DURATION", cfg.IgnoreDuration, MaxMinutes},
 		{"TRAFFIC_SPIKE_MIN_GB", cfg.TrafficSpikeMinGB, MaxTrafficGB},
 		{"TRAFFIC_HEAVY_GB", cfg.TrafficHeavyGB, MaxTrafficGB},
+		{"SHARED_HWID_HISTORY_DAYS", cfg.SharedHWIDHistoryDays, MaxHistoryDays},
 	}
 	for _, p := range bounded {
 		if p.value > p.max {
@@ -334,6 +345,12 @@ func (cfg *Config) Validate() error {
 		}
 		if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
 			return fmt.Errorf(i18n.T("error.config.health_addr"), cfg.HealthAddr)
+		}
+	}
+
+	for _, entry := range cfg.SharedHWIDSquadUUIDs {
+		if !reUUID.MatchString(entry) {
+			return fmt.Errorf(i18n.T("error.config.squad_uuid"), entry)
 		}
 	}
 
@@ -413,7 +430,10 @@ func validateRedisURL(raw string) error {
 	return nil
 }
 
-var reURLUserinfo = regexp.MustCompile(`//[^/@]*@`)
+var (
+	reURLUserinfo = regexp.MustCompile(`//[^/@]*@`)
+	reUUID        = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+)
 
 func RedactURL(raw string) string {
 	if u, err := url.Parse(raw); err == nil {

@@ -2,8 +2,6 @@ package traffic
 
 import (
 	"context"
-	"errors"
-	"net/http"
 	"sort"
 	"strconv"
 	"strings"
@@ -378,8 +376,7 @@ func (m *Monitor) send(ctx context.Context, cfg *config.Config, found []finding,
 		user, err := m.users.LookupUser(ctx, f.id)
 		if err != nil {
 			m.logger.WithError(err).WithField("userID", f.id).Warn(i18n.T("log.traffic_user_failed"))
-			var se *api.StatusError
-			if !errors.As(err, &se) || se.Code != http.StatusNotFound {
+			if !api.IsNotFound(err) {
 				pending = true
 			}
 			continue
@@ -410,8 +407,7 @@ func (m *Monitor) send(ctx context.Context, cfg *config.Config, found []finding,
 }
 
 func (m *Monitor) apiFailed(err error) {
-	var se *api.StatusError
-	if errors.As(err, &se) && (se.Code == http.StatusForbidden || se.Code == http.StatusNotFound) {
+	if api.IsUnavailable(err) {
 		if !m.unavailableWarned.Swap(true) {
 			m.logger.WithError(err).Warn(i18n.T("log.traffic_unavailable"))
 		}

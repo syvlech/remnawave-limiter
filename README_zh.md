@@ -18,6 +18,7 @@
 - **统计与报告**——`/stats` 命令（24 小时/一周统计 + 违规最多的前 5 名用户），以及发送到聊天的每日报告
 - **检查更新**——每天将当前版本与 GitHub 上的最新发布版本比较一次，有新版本时在聊天中通知
 - **流量监控**——将用户每日流量与其自身常态比较：发现突增和持续高流量，不会按用户逐个请求
+- **共用 HWID**——新用户的设备已在其他账户上出现过时发送告警，借此发现用同一部手机重复领取试用的情况
 - 通过 `/settings` 修改**运行时设置**——无需重启即可即时更改参数（保存在 Redis 中）
 - 用户和 IP/CIDR **白名单**、冷却时间、缓存、时区选择、俄语/英语/简体中文
 - **存活检查 `/healthz`**（可选，通过 `HEALTH_ADDR` 配置），用于 Docker/编排器健康检查
@@ -45,7 +46,7 @@
 ## 要求
 
 - Docker 和 Docker Compose
-- **Remnawave 3.0.0+**，以及 API 令牌（权限范围为 `connections:*`、`users:*` 和 `nodes:read`；告警中的 HWID 部分还需要 `hwid-user-devices:read`，流量监控需要 `bandwidth-stats:node-usage`）
+- **Remnawave 3.0.0+**，以及 API 令牌（权限范围为 `connections:*`、`users:*` 和 `nodes:read`；告警中的 HWID 部分和共用 HWID 检测还需要 `hwid-user-devices:read`，流量监控需要 `bandwidth-stats:node-usage`）
 - Telegram 机器人（[@BotFather](https://t.me/BotFather)）
 
 <details>
@@ -58,13 +59,14 @@
 | `nodes:list` | `GET /api/nodes` | 获取待轮询节点列表——缺少此权限将无法开始检查 |
 | `connections:by-node` | `POST /api/connections/by-node/{nodeUuid}` | 启动节点 IP 收集任务 |
 | `connections:by-node-result` | `GET /api/connections/by-node/{jobId}` | 获取收集结果 |
-| `users:by-id` | `GET /api/users/{id}` | 获取设备限额及用户数据 |
+| `users:by-id` | `GET /api/users/{id}` | 获取设备限额、用户数据及内部分组 |
 | `users:disable` | `POST /api/users/{id}/actions/disable` | 停用订阅 |
 | `users:enable` | `POST /api/users/{id}/actions/enable` | “启用”按钮及定时恢复 |
 | `connections:drop` | `POST /api/connections/drop` | 仅用于“断开连接”按钮：`manual` 模式告警、容差范围内告警（`AUTO_NOTIFY_SOFT`）和流量告警 |
 | `users:subscription-request-history` | `GET /api/users/{id}/subscription-request-history` | 告警中的“订阅请求”部分；可选 |
 | `hwid-user-devices:list-by-user` | `GET /api/hwid/devices/{userId}` | 告警中的“HWID 设备”部分；可选 |
 | `bandwidth-stats:node-usage` | `POST /api/bandwidth-stats/nodes/usage` | 流量监控（`TRAFFIC_MONITOR`）；可选 |
+| `hwid-user-devices:list` | `GET /api/hwid/devices` | 共用 HWID 检测（`SHARED_HWID_MONITOR`）；可选 |
 
 节点仅需读取权限：`nodes:*` 还会授予写入权限（重启和停用节点、修改配置档案（Config Profiles）和入站（Inbounds）），limiter 并不需要这些权限。
 
@@ -168,6 +170,9 @@ docker compose logs -f limiter                # 查看日志
 | `TRAFFIC_HEAVY_GB` | `200` | 当日流量达到此值即为高流量日，单位 GB。`0` 表示关闭该规则。可在 `/settings` 中修改 |
 | `TRAFFIC_HEAVY_DAYS` | `5` | 最近 7 天中需有多少个高流量日才发送持续高流量告警（`1..7`）。可在 `/settings` 中修改 |
 | `TRAFFIC_IGNORED_NODE_UUIDS` | — | 不计入流量的节点 UUID，逗号分隔（在 `IGNORED_NODE_UUIDS` 之外），例如本就以大流量为常态的节点 |
+| `SHARED_HWID_MONITOR` | `false` | 新设备的 HWID 已在其他账户上出现过时发送告警。参见[共用 HWID](#共用-hwidshared_hwid_monitortrue)。可通过 `/settings` 即时切换 |
+| `SHARED_HWID_SQUAD_UUIDS` | — | 内部分组 UUID，逗号分隔：只有这些分组中用户的新设备才会触发告警（例如试用分组）。匹配在所有用户中查找。留空表示检查所有用户。修改需重启 |
+| `SHARED_HWID_HISTORY_DAYS` | `30` | limiter 记住已见 HWID 设备的天数（`0..365`），用于发现已从面板删除的账户。`0` 表示不保存自己的历史，只与面板中仍存在的账户比较。参见[共用 HWID](#共用-hwidshared_hwid_monitortrue)。可在 `/settings` 中修改 |
 | `HEALTH_ADDR` | — | HTTP 存活检查端点 `/healthz` 的监听地址（例如 `:8080`）。留空 = 禁用 |
 | `LOG_LEVEL` | `info` | 日志详细程度：`trace`、`debug`、`info`、`warn`、`error`。`info` 每轮检查输出一条摘要，并记录所有操作；`debug` 额外记录各 IP 的详情及 Telegram 通信详情。可通过 `/settings` 在运行时修改 |
 | `LOG_FORMAT` | `text` | `text` 便于人工阅读，`json` 用于日志采集器（Loki、ELK）。修改后需要重启 |
@@ -212,11 +217,11 @@ docker compose logs -f limiter                # 查看日志
 
 ### 运行时设置（`/settings`）
 
-配置来源优先级：**Redis 覆盖值 > `.env` / 环境变量 > 默认值**。更改即时生效（例如，`CHECK_INTERVAL` 会重新创建定时器）。结构性和敏感参数（API URL/令牌、所有 `TELEGRAM_*`、`REDIS_URL`、`TIMEZONE`、`LANGUAGE`、`WEBHOOK_*`、`IP_WHITELIST`、`IGNORED_NODE_UUIDS`、`MAXMIND_*`、`DAILY_REPORT_TIME`、`HEALTH_ADDR`、`LOG_FORMAT`、`REMNAWAVE_COOKIES`、`REMNAWAVE_HEADERS`、`WHITELIST_USER_IDS`、`ASN_DATABASE_PATH`、`TRAFFIC_IGNORED_NODE_UUIDS`）**只能**通过修改 `.env` 并重启来更改。“♻️ 重置为 .env 配置”按钮（针对单个参数）和“♻️ 全部重置为 .env 配置”按钮（需确认）可移除覆盖值。
+配置来源优先级：**Redis 覆盖值 > `.env` / 环境变量 > 默认值**。更改即时生效（例如，`CHECK_INTERVAL` 会重新创建定时器）。结构性和敏感参数（API URL/令牌、所有 `TELEGRAM_*`、`REDIS_URL`、`TIMEZONE`、`LANGUAGE`、`WEBHOOK_*`、`IP_WHITELIST`、`IGNORED_NODE_UUIDS`、`MAXMIND_*`、`DAILY_REPORT_TIME`、`HEALTH_ADDR`、`LOG_FORMAT`、`REMNAWAVE_COOKIES`、`REMNAWAVE_HEADERS`、`WHITELIST_USER_IDS`、`ASN_DATABASE_PATH`、`TRAFFIC_IGNORED_NODE_UUIDS`、`SHARED_HWID_SQUAD_UUIDS`）**只能**通过修改 `.env` 并重启来更改。“♻️ 重置为 .env 配置”按钮（针对单个参数）和“♻️ 全部重置为 .env 配置”按钮（需确认）可移除覆盖值。
 
 菜单在同一条消息中运行，并原地更新：
 
-- **主界面**——按类别列出所有参数的表格（🎯 检测、🛡 处理方式、⏳ 阈值与冷却、🌐 分组、📈 流量、🧰 服务）；♻️ 标记在机器人中修改过的值。
+- **主界面**——按类别列出所有参数的表格（🎯 检测、🛡 处理方式、⏳ 阈值与冷却、🌐 分组、📈 流量、🔁 共用 HWID、🧰 服务）；♻️ 标记在机器人中修改过的值。
 - **分类界面**——显示数值、各参数的说明及按钮：开关只需点击一次即可切换（开启时显示绿色），其他参数则打开编辑界面。
 - **编辑界面**——显示当前值、来源（`.env` 或机器人）、变量名、快捷预设（分钟以便于阅读的形式显示，`0` = “永久”），也可通过消息输入自定义值。校验错误显示在同一界面，可以立即重新输入。
 
@@ -265,6 +270,54 @@ limiter 会把每个用户的每日流量与该用户自己的常态进行比较
 
 需要 `bandwidth-stats:node-usage` 权限；没有该权限时，limiter 只会记录一次警告并跳过轮询。如果面板关闭了用户流量记录（`SERVICE_DISABLE_USER_USAGE_RECORDS=true`），将没有数据，limiter 会对此发出警告。
 
+### 共用 HWID（`SHARED_HWID_MONITOR=true`）
+
+有些客户会注册新账户以再次领取试用，但仍用同一部手机连接。客户端应用会把设备 HWID 发给面板，第二个账户得到的 HWID 与之前相同。limiter 会发现这一点，并发送“👥 多个账户共用同一 HWID”告警。
+
+limiter 每 5 分钟发出一次请求，从面板获取最新的 HWID 设备（`GET /api/hwid/devices`，最新的在前），并处理上次轮询之后出现的设备。对每台新设备，它会查询对应用户。如果设置了 `SHARED_HWID_SQUAD_UUIDS`，则只继续检查这些分组中的用户，例如试用分组的用户。对这些用户，limiter 会查找其他账户上是否有相同的 HWID：在面板中精确查找（走索引，不用 `LIKE`），并在自己保存在 Redis 中的历史里查找。只有更早出现过该设备的账户才算匹配，因此告警总是针对较新的账户。只要找到至少一个这样的账户，就会发出告警。匹配在所有用户中查找，而不只在这些分组中，因此在新账户上领取试用的付费客户也会被发现。
+
+**为什么要自己保存历史**：许多机器人在试用结束后立即删除试用订阅，而面板会连同用户一起删除其设备。等同一部手机出现在新账户上时，旧账户已不在面板中。因此 limiter 会将见过的每台设备保存 `SHARED_HWID_HISTORY_DAYS` 天，默认 30 天（`hwid:seen:{hwid}`：账户 id、名称和 Telegram ID，以及设备出现的时间）。超过期限的记录不再参与比较，并会自动从 Redis 中过期。告警中这类账户标记为“🗑 已从面板删除”。首次启用时，limiter 会从面板填充历史，不发送告警：它以每页 1000 条读取最近 `SHARED_HWID_HISTORY_DAYS` 天的设备，遇到更早的设备即停止。在有 10,500 台设备的面板上，最近 30 天约有 3,000 台设备，用了 3 次请求，约 1.3 秒。如果 limiter 超过一天没有轮询面板，也会这样做，以免停机后一次性发出大量旧告警。
+
+当 `SHARED_HWID_HISTORY_DAYS=0` 时不保存自己的历史：limiter 只把新设备与面板中仍存在的账户比较，首次启用只需一次请求。设备只记住 7 小时，仅为避免重复处理。如果机器人在试用结束时删除试用订阅，这种模式下无法发现重复领取试用。
+
+**以下情况不算匹配**：
+
+- 与新账户 Telegram ID 相同的账户。那是同一个机器人客户的多个订阅；在真实面板上，这占共用 HWID 的一半以上。若有此类账户被隐藏，告警中会注明。
+- 白名单中的用户，无论在哪一方。
+
+告警发送到同一个聊天，按钮与设备超限告警相同，作用于新账户。告警中包含：
+
+- 新账户：订阅状态、创建时间、分组；
+- 设备和应用、HWID；
+- 使用此 HWID 的其他账户表格：状态和分组、账户创建时间、设备在该账户上出现的时间。已删除的账户标记为“🗑 已从面板删除”，自行移除了该设备的账户标记为“设备已移除”。
+
+每对账户 30 天内只告警一次（`hwid:reported:{id}`）：如果一对账户共用多台设备，例如手机和平板，第二台不会产生新告警。每次轮询最多发送 20 条告警，其余的在之后的轮询中发送。如果自上次轮询以来出现了超过约 540 台设备（例如停机不到一天之后），这些设备会记入历史，不发送告警，并在日志中记录警告，以免积压变成成千上万次连续请求。如果 Telegram 或面板没有响应，该设备会在下次轮询时重新处理。如果 6 小时后仍无法处理，该设备会记入历史，不发送告警，并在日志中记录警告。此告警不会发送到 webhook。首次轮询在启动 90 秒后进行。
+
+**面板负载**：每 5 分钟一次列表请求，速度与面板自带的“HWID 检查器”页面相同。此外，limiter 对每台新设备查询一次用户。对于受监控分组中的用户，还会精确查找一次 HWID，并查询找到的每个账户。在约有 10,500 台设备、每天新增约 150 台的面板上实测：
+
+- 列表请求约 0.3 秒；
+- 首次启用时填充历史：3 次请求，约 1.3 秒（30 天，约 3,000 台设备）；
+- 每天：检查所有用户时约 600 次轻量请求，只检查一个试用分组时约 480 次（其中 288 次是列表轮询）；
+- 每天告警数：不按分组过滤时 6 条，按试用分组过滤时 0 条；
+- Redis 中的历史约 0.6 MB（按每台设备约 0.2 KB 估算）。
+
+**大型面板**：在约有 100,000 个订阅、每天约 1% 为试用的面板上，对面板本身的负载仍然不大。以下是根据上面的实测估算，而非实测：
+
+- 约 240,000 台设备，每天新增约 3,500 台；
+- 每天约 5,500 次轻量请求，大约每 15 秒一次；
+- 每次轮询处理约 12 台新设备，顺序请求耗时几秒。
+
+更值得注意的有两点：
+
+- **首次填充历史**：30 天约 100 页，面板数据库需要工作几分钟；只在首次启用和停机超过一天后发生。
+- **Redis 内存**：30 天约 20 MB，90 天约 65 MB。`docker-compose.yml` 没有为 Valkey 设置内存上限，AOF 文件也会随之增长。
+
+保存期限应按用户再次领取试用的间隔来选择。
+
+**局限**：HWID 由客户端应用提供。只有在面板中启用 HWID 设备限制时才会记录设备。在部分平台上重装应用会改变 HWID，也可以有意伪造。因此告警只能发现不加掩饰的人，它是检查账户的理由，而不是证据。
+
+需要 `hwid-user-devices:list` 权限；没有该权限时，limiter 只会记录一次警告并跳过轮询。
+
 ### 手动模式（`ACTION_MODE=manual`）
 
 超限时，机器人发送带按钮的告警：
@@ -274,6 +327,7 @@ limiter 会把每个用户的每日流量与该用户自己的常态进行比较
 ┌──────────────────────┬──────────────────────┐
 │ 👤 用户              │ username123          │
 │ 🔗 订阅              │ 打开                 │
+│ 👥 内部分组          │ Germany              │
 │ 📊 设备限额          │ 3                    │
 │ 📡 检测到            │ 5 IP · 2 ASN         │
 │ 🚦 超出数量          │ +2                   │
@@ -291,6 +345,8 @@ limiter 会把每个用户的每日流量与该用户自己的常态进行比较
 [🔒 永久停用] [🔒 停用 10 分钟]  ← AUTO_DISABLE_DURATION > 0 时显示第二个按钮
 [🔇 忽略 15 分钟]                ← IGNORE_DURATION > 0 时显示，否则为“🔇 忽略”
 ```
+
+“👥 内部分组”列出订阅所属的内部分组（`activeInternalSquads`），数据来自同一个 `GET /api/users/{id}` 请求，不会额外请求面板。最多显示五个名称；没有内部分组的订阅不显示这一行。流量告警中也有这一行。
 
 **共享迹象**。告警主表中有两行摘要，IP 列表下方还有两个折叠的详情部分：
 

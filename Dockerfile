@@ -1,8 +1,6 @@
 # syntax=docker/dockerfile:1
 FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS builder
 
-# Пусто по умолчанию: тогда версия берётся из internal/version/version.go.
-# Значение вроде "dev" здесь перетирало бы её при любой сборке без --build-arg.
 ARG VERSION=""
 ARG TARGETOS
 ARG TARGETARCH
@@ -22,8 +20,6 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 FROM alpine:3.24
 
-# ca-certificates — HTTPS к панели и MaxMind, tzdata — TIMEZONE,
-# wget — healthcheck в docker-compose.
 RUN apk add --no-cache ca-certificates tzdata wget
 
 COPY --from=builder /bin/remnawave-limiter /usr/local/bin/remnawave-limiter

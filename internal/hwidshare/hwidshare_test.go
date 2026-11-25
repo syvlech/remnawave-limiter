@@ -37,6 +37,19 @@ type fakePanel struct {
 	listSizes []int
 	findCalls []string
 	userCalls []int64
+	limitErr  error
+	limits    []string
+}
+
+func (p *fakePanel) SetTrafficLimit(_ context.Context, id int64, limit int64, activate bool) error {
+	if p.limitErr != nil {
+		return p.limitErr
+	}
+	p.limits = append(p.limits, fmt.Sprintf("%d=%d", id, limit))
+	if u := p.users[id]; u != nil {
+		u.TrafficLimitBytes = api.Bytes(limit)
+	}
+	return nil
 }
 
 func newPanel() *fakePanel {
@@ -148,10 +161,35 @@ type fakeStore struct {
 	clock         func() time.Time
 	expires       map[string]time.Time
 	unmarked      int
+	cuts          map[int64]cache.TrafficCut
+}
+
+func (s *fakeStore) GetTrafficCut(_ context.Context, id int64) (*cache.TrafficCut, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	c, ok := s.cuts[id]
+	if !ok {
+		return nil, nil
+	}
+	return &c, nil
+}
+
+func (s *fakeStore) SaveTrafficCut(_ context.Context, id int64, c cache.TrafficCut, _ time.Duration) error {
+	if s.err != nil {
+		return s.err
+	}
+	s.cuts[id] = c
+	return nil
+}
+
+func (s *fakeStore) DeleteTrafficCut(_ context.Context, id int64) error {
+	delete(s.cuts, id)
+	return nil
 }
 
 func newStore() *fakeStore {
-	return &fakeStore{history: map[string]map[int64]cache.HWIDRecord{}, reported: map[int64]map[int64]bool{}, whitelist: map[int64]bool{}, expires: map[string]time.Time{}, clock: time.Now}
+	return &fakeStore{history: map[string]map[int64]cache.HWIDRecord{}, reported: map[int64]map[int64]bool{}, whitelist: map[int64]bool{}, expires: map[string]time.Time{}, cuts: map[int64]cache.TrafficCut{}, clock: time.Now}
 }
 
 func (s *fakeStore) GetHWIDState(context.Context) (cache.HWIDState, error) { return s.state, s.err }
@@ -267,6 +305,7 @@ type sentAlert struct {
 	userID  int64
 	disable int
 	ignore  int
+	restore bool
 }
 
 type fakeNotifier struct {
@@ -274,11 +313,11 @@ type fakeNotifier struct {
 	err  error
 }
 
-func (n *fakeNotifier) SendManualAlert(_ context.Context, text string, userID int64, disable, ignore int) error {
+func (n *fakeNotifier) SendSharedHWIDAlert(_ context.Context, text string, userID int64, disable, ignore int, restore bool) error {
 	if n.err != nil {
 		return n.err
 	}
-	n.sent = append(n.sent, sentAlert{text: text, userID: userID, disable: disable, ignore: ignore})
+	n.sent = append(n.sent, sentAlert{text: text, userID: userID, disable: disable, ignore: ignore, restore: restore})
 	return nil
 }
 
@@ -984,5 +1023,105 @@ func TestPoll_StaleCacheRefetchesSquads(t *testing.T) {
 	h.poll(5 * time.Minute)
 	if len(h.notifier.sent) != 1 {
 		t.Fatalf("запись кэша без UUID сквадов перечитывается из панели: %d", len(h.notifier.sent))
+	}
+}
+
+func (h *harness) setTrafficMB(mb int) {
+	cfg := *h.cfg.Load()
+	cfg.SharedHWIDTrafficMB = mb
+	h.cfg.Store(&cfg)
+}
+
+func trafficHarness(squads ...string) *harness {
+	h := newHarness(squads...)
+	h.setTrafficMB(100)
+	h.panel.addUser(1, "paid_user", 100, paidSquad)
+	h.panel.addDevice(hwidX, 1, testNow.Add(-48*time.Hour))
+	h.seeded()
+	h.panel.addUser(2, "new_trial", 200, trialSquad)
+	h.panel.addDevice(hwidX, 2, testNow.Add(2*time.Minute))
+	return h
+}
+
+func TestPoll_TrafficLimitedOnSharedHWID(t *testing.T) {
+	h := trafficHarness(trialSquad)
+	h.panel.users[2].TrafficLimitBytes = 5 << 30
+	h.poll(5 * time.Minute)
+
+	if got := strings.Join(h.panel.limits, ","); got != "2=104857600" {
+		t.Fatalf("новому пробному аккаунту ставится лимит 100 МБ, вызовы %q\n%s", got, h.logs.String())
+	}
+	if c := h.store.cuts[2]; c.Previous != 5<<30 || c.Limit != 100<<20 {
+		t.Errorf("прежний лимит сохраняется для кнопки возврата: %+v", c)
+	}
+	if len(h.notifier.sent) != 1 || !h.notifier.sent[0].restore {
+		t.Fatalf("алерт уходит с кнопкой возврата трафика: %+v", h.notifier.sent)
+	}
+	for _, want := range []string{"ограничен до 100 МБ", "было 5.0 ГБ"} {
+		if !strings.Contains(h.notifier.sent[0].text, want) {
+			t.Errorf("в алерте нет %q:\n%s", want, h.notifier.sent[0].text)
+		}
+	}
+}
+
+func TestPoll_TrafficNeedsSquadFilter(t *testing.T) {
+	h := trafficHarness()
+	h.poll(5 * time.Minute)
+	if len(h.panel.limits) != 0 {
+		t.Errorf("без фильтра сквадов трафик не урезается: %v", h.panel.limits)
+	}
+	if len(h.notifier.sent) != 1 || h.notifier.sent[0].restore || strings.Contains(h.notifier.sent[0].text, "Трафик") {
+		t.Errorf("алерт без строки о трафике и без кнопки возврата: %+v", h.notifier.sent)
+	}
+}
+
+func TestPoll_TrafficOffByDefault(t *testing.T) {
+	h := trafficHarness(trialSquad)
+	h.setTrafficMB(0)
+	h.poll(5 * time.Minute)
+	if len(h.panel.limits) != 0 || len(h.notifier.sent) != 1 || h.notifier.sent[0].restore {
+		t.Errorf("при 0 трафик не трогается: %v %+v", h.panel.limits, h.notifier.sent)
+	}
+}
+
+func TestPoll_TrafficLowerLimitKept(t *testing.T) {
+	h := trafficHarness(trialSquad)
+	h.panel.users[2].TrafficLimitBytes = 50 << 20
+	h.poll(5 * time.Minute)
+	if len(h.panel.limits) != 0 || len(h.store.cuts) != 0 {
+		t.Errorf("меньший лимит не повышается: %v %v", h.panel.limits, h.store.cuts)
+	}
+	if len(h.notifier.sent) != 1 || h.notifier.sent[0].restore || !strings.Contains(h.notifier.sent[0].text, "лимит уже 50 МБ") {
+		t.Errorf("алерт сообщает, что лимит не тронут: %+v", h.notifier.sent)
+	}
+}
+
+func TestPoll_TrafficFailureStillAlerts(t *testing.T) {
+	h := trafficHarness(trialSquad)
+	h.panel.limitErr = errors.New("panel down")
+	h.poll(5 * time.Minute)
+	if len(h.store.cuts) != 0 {
+		t.Errorf("при сбое панели сохранённый лимит удаляется: %v", h.store.cuts)
+	}
+	if len(h.notifier.sent) != 1 || h.notifier.sent[0].restore || !strings.Contains(h.notifier.sent[0].text, "не удалось ограничить") {
+		t.Errorf("алерт уходит и сообщает о сбое: %+v", h.notifier.sent)
+	}
+}
+
+func TestPoll_TrafficRetryAfterSendFailureKeepsPrevious(t *testing.T) {
+	h := trafficHarness(trialSquad)
+	h.notifier.err = errors.New("telegram down")
+	h.poll(5 * time.Minute)
+	h.notifier.err = nil
+	h.poll(5 * time.Minute)
+
+	if got := strings.Join(h.panel.limits, ","); got != "2=104857600" {
+		t.Errorf("лимит ставится один раз, вызовы %q", got)
+	}
+	if c := h.store.cuts[2]; c.Previous != 0 || c.Limit != 100<<20 {
+		t.Errorf("повтор не затирает прежний лимит урезанным: %+v", c)
+	}
+	if len(h.notifier.sent) != 1 || !h.notifier.sent[0].restore || !strings.Contains(h.notifier.sent[0].text, "было без лимита") {
+		t.Errorf("повторный алерт показывает урезание и кнопку: %+v", h.notifier.sent)
 	}
 }

@@ -34,6 +34,8 @@ const (
 	giveUpAfter  = 6 * time.Hour
 	processedTTL = giveUpAfter + time.Hour
 	reportedTTL  = 30 * 24 * time.Hour
+	trafficTTL   = 30 * 24 * time.Hour
+	mib          = 1 << 20
 
 	lookupSize       = 100
 	maxLookups       = 20
@@ -44,6 +46,7 @@ type Panel interface {
 	ListHWIDDevices(ctx context.Context, start, size int) ([]api.HWIDDevice, int, error)
 	FindHWIDDevices(ctx context.Context, hwid string, size int) ([]api.HWIDDevice, error)
 	GetUserByID(ctx context.Context, userID int64) (*api.UserData, error)
+	SetTrafficLimit(ctx context.Context, userID int64, limitBytes int64, activate bool) error
 }
 
 type Users interface {
@@ -61,10 +64,13 @@ type Store interface {
 	MarkHWIDReported(ctx context.Context, userID int64, others []int64, ttl time.Duration) error
 	UnmarkHWIDReported(ctx context.Context, userID int64, others []int64) error
 	IsWhitelisted(ctx context.Context, userID int64) (bool, error)
+	GetTrafficCut(ctx context.Context, userID int64) (*cache.TrafficCut, error)
+	SaveTrafficCut(ctx context.Context, userID int64, cut cache.TrafficCut, ttl time.Duration) error
+	DeleteTrafficCut(ctx context.Context, userID int64) error
 }
 
 type Notifier interface {
-	SendManualAlert(ctx context.Context, text string, userID int64, disableDuration, ignoreDuration int) error
+	SendSharedHWIDAlert(ctx context.Context, text string, userID int64, disableDuration, ignoreDuration int, trafficRestore bool) error
 }
 
 type Monitor struct {
@@ -389,8 +395,10 @@ func (m *Monitor) check(ctx context.Context, cfg *config.Config, d api.HWIDDevic
 		m.logger.WithError(err).Warn(i18n.T("log.shared_hwid_store_failed"))
 		return outcomePending
 	}
+	alert.Traffic = m.limitTraffic(ctx, cfg, d.UserID, data)
 	text := telegram.FormatSharedHWIDAlert(alert, m.location)
-	if err := m.notifier.SendManualAlert(ctx, text, d.UserID, cfg.AutoDisableDuration, cfg.IgnoreDuration); err != nil {
+	restore := alert.Traffic.State == telegram.TrafficLimited
+	if err := m.notifier.SendSharedHWIDAlert(ctx, text, d.UserID, cfg.AutoDisableDuration, cfg.IgnoreDuration, restore); err != nil {
 		m.logger.WithError(err).WithField("userID", d.UserID).Error(i18n.T("log.shared_hwid_alert_failed"))
 		if err := m.store.UnmarkHWIDReported(context.WithoutCancel(ctx), d.UserID, news); err != nil {
 			m.logger.WithError(err).Warn(i18n.T("log.shared_hwid_store_failed"))
@@ -407,6 +415,49 @@ func (m *Monitor) check(ctx context.Context, cfg *config.Config, d api.HWIDDevic
 		"userID": d.UserID, "username": data.Username, "others": strings.Join(ids, ","),
 	}).Warn(i18n.T("log.shared_hwid_alert"))
 	return outcomeAlerted
+}
+
+func (m *Monitor) limitTraffic(ctx context.Context, cfg *config.Config, userID int64, data *api.UserData) telegram.TrafficCut {
+	if cfg.SharedHWIDTrafficMB <= 0 || len(cfg.SharedHWIDSquadUUIDs) == 0 {
+		return telegram.TrafficCut{}
+	}
+	want := int64(cfg.SharedHWIDTrafficMB) * mib
+	current := int64(data.TrafficLimitBytes)
+	res := telegram.TrafficCut{Limit: want, Previous: current, Used: data.UsedTraffic()}
+
+	saved, err := m.store.GetTrafficCut(ctx, userID)
+	if err != nil {
+		m.logger.WithError(err).Warn(i18n.T("log.shared_hwid_store_failed"))
+		res.State = telegram.TrafficCutFailed
+		return res
+	}
+	if saved != nil && saved.Limit == current {
+		res.Limit, res.Previous, res.State = saved.Limit, saved.Previous, telegram.TrafficLimited
+		return res
+	}
+	if current > 0 && current <= want {
+		res.State = telegram.TrafficAlreadyLower
+		return res
+	}
+
+	if err := m.store.SaveTrafficCut(ctx, userID, cache.TrafficCut{Previous: current, Limit: want}, trafficTTL); err != nil {
+		m.logger.WithError(err).Warn(i18n.T("log.shared_hwid_store_failed"))
+		res.State = telegram.TrafficCutFailed
+		return res
+	}
+	if err := m.panel.SetTrafficLimit(ctx, userID, want, false); err != nil {
+		m.logger.WithError(err).WithField("userID", userID).Error(i18n.T("log.shared_hwid_traffic_failed"))
+		if err := m.store.DeleteTrafficCut(context.WithoutCancel(ctx), userID); err != nil {
+			m.logger.WithError(err).Warn(i18n.T("log.shared_hwid_store_failed"))
+		}
+		res.State = telegram.TrafficCutFailed
+		return res
+	}
+	m.logger.WithFields(logrus.Fields{
+		"userID": userID, "limitBytes": want, "previousBytes": current, "usedBytes": res.Used,
+	}).Warn(i18n.T("log.shared_hwid_traffic_limited"))
+	res.State = telegram.TrafficLimited
+	return res
 }
 
 func (m *Monitor) trigger(ctx context.Context, cfg *config.Config, userID int64) (*api.CachedUser, error) {

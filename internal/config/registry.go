@@ -50,6 +50,7 @@ var registry = []Field{
 	{Key: "TRAFFIC_HEAVY_DAYS", TitleKey: "setting.TRAFFIC_HEAVY_DAYS", Kind: KindInt},
 	{Key: "SHARED_HWID_MONITOR", TitleKey: "setting.SHARED_HWID_MONITOR", Kind: KindBool, Allowed: []string{"true", "false"}},
 	{Key: "SHARED_HWID_HISTORY_DAYS", TitleKey: "setting.SHARED_HWID_HISTORY_DAYS", Kind: KindInt},
+	{Key: "SHARED_HWID_TRAFFIC_LIMIT_MB", TitleKey: "setting.SHARED_HWID_TRAFFIC_LIMIT_MB", Kind: KindInt},
 	{Key: "LOG_LEVEL", TitleKey: "setting.LOG_LEVEL", Kind: KindEnum, Allowed: LogLevels},
 }
 
@@ -151,6 +152,8 @@ func Display(cfg *Config, key string) string {
 		return strconv.FormatBool(cfg.SharedHWIDMonitor)
 	case "SHARED_HWID_HISTORY_DAYS":
 		return strconv.Itoa(cfg.SharedHWIDHistoryDays)
+	case "SHARED_HWID_TRAFFIC_LIMIT_MB":
+		return strconv.Itoa(cfg.SharedHWIDTrafficMB)
 	case "LOG_LEVEL":
 		return cfg.LogLevel
 	}

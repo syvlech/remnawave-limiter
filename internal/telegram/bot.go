@@ -35,6 +35,8 @@ const (
 	usernameRetryInterval = time.Minute
 )
 
+const ActionTrafficRestore = "traffic_restore"
+
 type Action struct {
 	Name    string
 	UserID  int64
@@ -325,6 +327,22 @@ func (b *Bot) sendMsg(ctx context.Context, m richMsg) error {
 }
 
 func (b *Bot) SendManualAlert(ctx context.Context, text string, userID int64, disableDuration int, ignoreDuration int) error {
+	return b.sendMsg(ctx, richMsg{HTML: text, Rows: manualRows(userID, disableDuration, ignoreDuration)})
+}
+
+func (b *Bot) SendSharedHWIDAlert(ctx context.Context, text string, userID int64, disableDuration, ignoreDuration int, trafficRestore bool) error {
+	rows := manualRows(userID, disableDuration, ignoreDuration)
+	if trafficRestore {
+		rows = append([][]richButton{trafficRestoreRow(userID)}, rows...)
+	}
+	return b.sendMsg(ctx, richMsg{HTML: text, Rows: rows})
+}
+
+func trafficRestoreRow(userID int64) []richButton {
+	return []richButton{cbButton(i18n.T("button.traffic_restore"), actionData(ActionTrafficRestore, userID), styleSuccess)}
+}
+
+func manualRows(userID int64, disableDuration int, ignoreDuration int) [][]richButton {
 	rows := [][]richButton{
 		{cbButton(i18n.T("button.drop"), actionData("drop", userID), stylePrimary)},
 	}
@@ -338,8 +356,7 @@ func (b *Bot) SendManualAlert(ctx context.Context, text string, userID int64, di
 	}
 	rows = append(rows, disableRow)
 	rows = append(rows, []richButton{ignoreButton(userID, ignoreDuration)})
-
-	return b.sendMsg(ctx, richMsg{HTML: text, Rows: rows})
+	return rows
 }
 
 func (b *Bot) SendAutoAlert(ctx context.Context, text string, userID int64) error {
@@ -370,6 +387,42 @@ func undoRows(action string, userID int64) [][]richButton {
 		return nil
 	}
 	return [][]richButton{{cbButton(i18n.T("button.enable"), actionData("enable", userID), styleSuccess)}}
+}
+
+func keptRows(action string, userID int64, hasTrafficRestore bool) [][]richButton {
+	rows := undoRows(action, userID)
+	if hasTrafficRestore && action != ActionTrafficRestore {
+		rows = append([][]richButton{trafficRestoreRow(userID)}, rows...)
+	}
+	return rows
+}
+
+func messageHasButton(msg *models.Message, data string) bool {
+	if msg == nil {
+		return false
+	}
+	if msg.RichMessage != nil {
+		for _, blk := range msg.RichMessage.Blocks {
+			if blk.Type != models.RichBlockTypeButtons || blk.RichBlockButtons == nil {
+				continue
+			}
+			for _, btn := range blk.RichBlockButtons.Buttons {
+				if btn.CallbackData == data {
+					return true
+				}
+			}
+		}
+	}
+	if msg.ReplyMarkup != nil {
+		for _, row := range msg.ReplyMarkup.InlineKeyboard {
+			for _, btn := range row {
+				if btn.CallbackData == data {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func (b *Bot) SendMessage(ctx context.Context, text string) error {
@@ -709,7 +762,7 @@ func (b *Bot) markTextAlert(ctx context.Context, msg *models.Message, action str
 		Text:               escapeHTML(originalText) + FormatActionResult(action, adminName),
 		ParseMode:          models.ParseModeHTML,
 		LinkPreviewOptions: &models.LinkPreviewOptions{IsDisabled: tgbot.True()},
-		ReplyMarkup:        richMsg{Rows: undoRows(action, userID)}.keyboard(),
+		ReplyMarkup:        richMsg{Rows: keptRows(action, userID, messageHasButton(msg, actionData(ActionTrafficRestore, userID)))}.keyboard(),
 	})
 	return err
 }
@@ -736,7 +789,7 @@ func (b *Bot) markRichAlert(ctx context.Context, msg *models.Message, action str
 			},
 		},
 	)))
-	for _, row := range undoRows(action, userID) {
+	for _, row := range keptRows(action, userID, messageHasButton(msg, actionData(ActionTrafficRestore, userID))) {
 		blocks = append(blocks, buttonsBlock(row))
 	}
 

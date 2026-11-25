@@ -26,6 +26,23 @@ type SharedHWIDAlert struct {
 	Accounts []SharedAccount
 	Hidden   int
 	At       time.Time
+	Traffic  TrafficCut
+}
+
+type TrafficCutState int
+
+const (
+	TrafficUntouched TrafficCutState = iota
+	TrafficLimited
+	TrafficAlreadyLower
+	TrafficCutFailed
+)
+
+type TrafficCut struct {
+	State    TrafficCutState
+	Limit    int64
+	Previous int64
+	Used     int64
 }
 
 type SharedAccount struct {
@@ -63,6 +80,9 @@ func FormatSharedHWIDAlert(a SharedHWIDAlert, loc *time.Location) string {
 	}
 	b.WriteString(tableRow(i18n.T("shared_hwid.hwid"), "<code>"+escapeHTML(shortHWID(a.HWID))+"</code>"))
 	b.WriteString(tableRow(i18n.T("shared_hwid.others"), "<mark>"+strconv.Itoa(len(a.Accounts))+"</mark>"))
+	if row := trafficCutText(a.Traffic); row != "" {
+		b.WriteString(tableRow(i18n.T("shared_hwid.traffic"), row))
+	}
 	b.WriteString(tableRow(i18n.T("alert.time"), tgTime(a.At, loc, "wDT")))
 	b.WriteString("</table>")
 
@@ -104,6 +124,25 @@ func writeSharedAccounts(b *strings.Builder, accounts []SharedAccount, loc *time
 		b.WriteString("</tr>")
 	}
 	b.WriteString("</table></details>")
+}
+
+func trafficCutText(c TrafficCut) string {
+	switch c.State {
+	case TrafficLimited:
+		return "<mark>" + escapeHTML(fmt.Sprintf(i18n.T("shared_hwid.traffic_limited"), FormatBytes(c.Limit), trafficLimitText(c.Previous), FormatBytes(c.Used))) + "</mark>"
+	case TrafficAlreadyLower:
+		return escapeHTML(fmt.Sprintf(i18n.T("shared_hwid.traffic_lower"), trafficLimitText(c.Previous)))
+	case TrafficCutFailed:
+		return escapeHTML(i18n.T("shared_hwid.traffic_failed"))
+	}
+	return ""
+}
+
+func trafficLimitText(n int64) string {
+	if n <= 0 {
+		return i18n.T("shared_hwid.traffic_unlimited")
+	}
+	return FormatBytes(n)
 }
 
 func accountState(acc SharedAccount) string {

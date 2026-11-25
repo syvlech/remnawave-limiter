@@ -59,6 +59,25 @@ type UserData struct {
 	SubscriptionURL      string          `json:"subscriptionUrl,omitempty"`
 	ActiveInternalSquads []InternalSquad `json:"activeInternalSquads"`
 	CreatedAt            time.Time       `json:"createdAt"`
+	TrafficLimitBytes    Bytes           `json:"trafficLimitBytes"`
+	UserTraffic          *UserTraffic    `json:"userTraffic"`
+}
+
+type UserTraffic struct {
+	UsedTrafficBytes Bytes `json:"usedTrafficBytes"`
+}
+
+func (u *UserData) UsedTraffic() int64 {
+	if u == nil || u.UserTraffic == nil {
+		return 0
+	}
+	return int64(u.UserTraffic.UsedTrafficBytes)
+}
+
+type UpdateUserRequest struct {
+	ID                int64   `json:"id"`
+	TrafficLimitBytes *int64  `json:"trafficLimitBytes,omitempty"`
+	Status            *string `json:"status,omitempty"`
 }
 
 type InternalSquad struct {

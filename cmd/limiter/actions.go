@@ -8,6 +8,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/remnawave/limiter/internal/api"
+	"github.com/remnawave/limiter/internal/cache"
 	"github.com/remnawave/limiter/internal/config"
 	"github.com/remnawave/limiter/internal/i18n"
 	"github.com/remnawave/limiter/internal/telegram"
@@ -17,6 +18,8 @@ type userActions interface {
 	DisableUser(ctx context.Context, userID int64) error
 	EnableUser(ctx context.Context, userID int64) error
 	DropConnections(ctx context.Context, userIDs []int64) error
+	GetUserByID(ctx context.Context, userID int64) (*api.UserData, error)
+	SetTrafficLimit(ctx context.Context, userID int64, limitBytes int64, activate bool) error
 }
 
 type actionStore interface {
@@ -24,6 +27,8 @@ type actionStore interface {
 	RemoveRestoreTimer(ctx context.Context, userID int64) error
 	AddToWhitelist(ctx context.Context, userID int64) error
 	AddToWhitelistTemp(ctx context.Context, userID int64, ttl time.Duration) error
+	GetTrafficCut(ctx context.Context, userID int64) (*cache.TrafficCut, error)
+	DeleteTrafficCut(ctx context.Context, userID int64) error
 }
 
 const actionStoreTimeout = 10 * time.Second
@@ -78,6 +83,9 @@ func newActionHandler(panel userActions, store actionStore, cfg *config.Provider
 				return fmt.Errorf(i18n.T("error.action.ignore_duration"), telegram.ErrStaleAction)
 			}
 			return store.AddToWhitelistTemp(ctx, a.UserID, time.Duration(minutes)*time.Minute)
+
+		case telegram.ActionTrafficRestore:
+			return restoreTraffic(ctx, panel, store, a.UserID)
 		}
 		return fmt.Errorf(i18n.T("error.action.unknown"), a.Name, telegram.ErrStaleAction)
 	}
@@ -88,4 +96,29 @@ func buttonMinutes(a telegram.Action, current int) int {
 		return a.Minutes
 	}
 	return current
+}
+
+func restoreTraffic(ctx context.Context, panel userActions, store actionStore, userID int64) error {
+	cut, err := store.GetTrafficCut(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if cut == nil {
+		return fmt.Errorf(i18n.T("error.action.traffic_stale"), telegram.ErrStaleAction)
+	}
+	user, err := panel.GetUserByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if int64(user.TrafficLimitBytes) != cut.Limit {
+		if err := store.DeleteTrafficCut(ctx, userID); err != nil {
+			return err
+		}
+		return fmt.Errorf(i18n.T("error.action.traffic_changed"), telegram.ErrStaleAction)
+	}
+	activate := user.Status == "LIMITED" && (cut.Previous == 0 || cut.Previous > user.UsedTraffic())
+	if err := panel.SetTrafficLimit(ctx, userID, cut.Previous, activate); err != nil {
+		return err
+	}
+	return store.DeleteTrafficCut(context.WithoutCancel(ctx), userID)
 }

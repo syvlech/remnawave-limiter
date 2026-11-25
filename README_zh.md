@@ -67,6 +67,7 @@
 | `hwid-user-devices:list-by-user` | `GET /api/hwid/devices/{userId}` | 告警中的“HWID 设备”部分；可选 |
 | `bandwidth-stats:node-usage` | `POST /api/bandwidth-stats/nodes/usage` | 流量监控（`TRAFFIC_MONITOR`）；可选 |
 | `hwid-user-devices:list` | `GET /api/hwid/devices` | 共用 HWID 检测（`SHARED_HWID_MONITOR`）；可选 |
+| 包含在 `users:*` 中 | `PATCH /api/users` | 共用 HWID 时的流量限制（`SHARED_HWID_TRAFFIC_LIMIT_MB`）和“恢复流量”按钮；可选 |
 
 节点仅需读取权限：`nodes:*` 还会授予写入权限（重启和停用节点、修改配置档案（Config Profiles）和入站（Inbounds）），limiter 并不需要这些权限。
 
@@ -173,6 +174,7 @@ docker compose logs -f limiter                # 查看日志
 | `SHARED_HWID_MONITOR` | `false` | 新设备的 HWID 已在其他账户上出现过时发送告警。参见[共用 HWID](#共用-hwidshared_hwid_monitortrue)。可通过 `/settings` 即时切换 |
 | `SHARED_HWID_SQUAD_UUIDS` | — | 内部分组 UUID，逗号分隔：只有这些分组中用户的新设备才会触发告警（例如试用分组）。匹配在所有用户中查找。留空表示检查所有用户。修改需重启 |
 | `SHARED_HWID_HISTORY_DAYS` | `30` | limiter 记住已见 HWID 设备的天数（`0..365`），用于发现已从面板删除的账户。`0` 表示不保存自己的历史，只与面板中仍存在的账户比较。参见[共用 HWID](#共用-hwidshared_hwid_monitortrue)。可在 `/settings` 中修改 |
+| `SHARED_HWID_TRAFFIC_LIMIT_MB` | `0` | 共用 HWID 告警中的新账户由 limiter 自动设置的流量限制（MB），例如 `100`。仅在设置了 `SHARED_HWID_SQUAD_UUIDS` 时生效。`0` 表示关闭。参见[流量限制](#流量限制shared_hwid_traffic_limit_mb)。可在 `/settings` 中修改 |
 | `HEALTH_ADDR` | — | HTTP 存活检查端点 `/healthz` 的监听地址（例如 `:8080`）。留空 = 禁用 |
 | `LOG_LEVEL` | `info` | 日志详细程度：`trace`、`debug`、`info`、`warn`、`error`。`info` 每轮检查输出一条摘要，并记录所有操作；`debug` 额外记录各 IP 的详情及 Telegram 通信详情。可通过 `/settings` 在运行时修改 |
 | `LOG_FORMAT` | `text` | `text` 便于人工阅读，`json` 用于日志采集器（Loki、ELK）。修改后需要重启 |
@@ -317,6 +319,17 @@ limiter 每 5 分钟发出一次请求，从面板获取最新的 HWID 设备（
 **局限**：HWID 由客户端应用提供。只有在面板中启用 HWID 设备限制时才会记录设备。在部分平台上重装应用会改变 HWID，也可以有意伪造。因此告警只能发现不加掩饰的人，它是检查账户的理由，而不是证据。
 
 需要 `hwid-user-devices:list` 权限；没有该权限时，limiter 只会记录一次警告并跳过轮询。
+
+#### 流量限制（`SHARED_HWID_TRAFFIC_LIMIT_MB`）
+
+告警可以附带一个动作：设置 `SHARED_HWID_TRAFFIC_LIMIT_MB=100` 后，limiter 会在发送告警前自动为新账户设置 100 MB 的流量限制（`PATCH /api/users`，`trafficLimitBytes`）。这样重复领取的试用几乎没有用处，客户会看到流量已用完，并可以购买订阅。
+
+- 仅在设置了 `SHARED_HWID_SQUAD_UUIDS` 时生效，即只针对试用分组。没有过滤时只发送告警，否则可能误限付费客户。
+- 限制是绝对值。如果已用流量超过该值，面板会将账户转为 `LIMITED`。低于设定值的限制不会被提高，告警中显示“未修改：限制已为 …”。
+- 不修改重置策略（`trafficLimitStrategy`）。如果试用套餐每天重置，则每天都可使用 100 MB。
+- 之前的限制保存在 `hwid:traffic:{id}` 中 30 天。告警中的“📶 恢复流量”按钮会将其恢复，并在之前的限制足够时解除 `LIMITED`。如果在此期间面板或机器人已修改限制（例如客户已付费），按钮不做任何更改。执行其他操作后按钮仍保留在告警中。
+- 如果面板未接受修改，告警仍会发送，并标注“限制失败”。
+- 销售订阅的机器人不知道流量已被限制。购买时机器人通常会重新设置套餐限制，并把流量包加到面板中的当前限制上。请确认您的机器人也是这样处理的。
 
 ### 手动模式（`ACTION_MODE=manual`）
 

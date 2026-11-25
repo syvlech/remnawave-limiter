@@ -34,6 +34,7 @@ const (
 	keyTrafficFinalized      = "traffic:finalized"
 	prefixHWIDHistory        = "hwid:seen:"
 	prefixHWIDReported       = "hwid:reported:"
+	prefixHWIDTraffic        = "hwid:traffic:"
 	keyHWIDState             = "hwid:state"
 
 	trafficDayMarker = "_"
@@ -782,6 +783,44 @@ func (c *Cache) UnmarkHWIDReported(ctx context.Context, userID int64, others []i
 	}
 	if err := c.client.SRem(ctx, prefixHWIDReported+formatUserID(userID), members...).Err(); err != nil {
 		return fmt.Errorf("unmark hwid reported: %w", err)
+	}
+	return nil
+}
+
+type TrafficCut struct {
+	Previous int64 `json:"p"`
+	Limit    int64 `json:"l"`
+}
+
+func (c *Cache) GetTrafficCut(ctx context.Context, userID int64) (*TrafficCut, error) {
+	raw, err := c.client.Get(ctx, prefixHWIDTraffic+formatUserID(userID)).Result()
+	if err == redis.Nil {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get traffic cut: %w", err)
+	}
+	var cut TrafficCut
+	if err := json.Unmarshal([]byte(raw), &cut); err != nil {
+		return nil, fmt.Errorf("decode traffic cut: %w", err)
+	}
+	return &cut, nil
+}
+
+func (c *Cache) SaveTrafficCut(ctx context.Context, userID int64, cut TrafficCut, ttl time.Duration) error {
+	raw, err := json.Marshal(cut)
+	if err != nil {
+		return fmt.Errorf("encode traffic cut: %w", err)
+	}
+	if err := c.client.Set(ctx, prefixHWIDTraffic+formatUserID(userID), raw, ttl).Err(); err != nil {
+		return fmt.Errorf("save traffic cut: %w", err)
+	}
+	return nil
+}
+
+func (c *Cache) DeleteTrafficCut(ctx context.Context, userID int64) error {
+	if err := c.client.Del(ctx, prefixHWIDTraffic+formatUserID(userID)).Err(); err != nil {
+		return fmt.Errorf("delete traffic cut: %w", err)
 	}
 	return nil
 }

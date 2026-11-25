@@ -613,6 +613,18 @@ func (c *Client) EnableUser(ctx context.Context, userID int64) error {
 	return nil
 }
 
+func (c *Client) SetTrafficLimit(ctx context.Context, userID int64, limitBytes int64, activate bool) error {
+	req := UpdateUserRequest{ID: userID, TrafficLimitBytes: &limitBytes}
+	if activate {
+		status := "ACTIVE"
+		req.Status = &status
+	}
+	if _, err := c.doRequest(ctx, http.MethodPatch, "/api/users", req); err != nil {
+		return fmt.Errorf("set traffic limit %d: %w", userID, err)
+	}
+	return nil
+}
+
 func (c *Client) DropConnections(ctx context.Context, userIDs []int64) error {
 	if len(userIDs) == 0 {
 		return nil

@@ -67,6 +67,7 @@ If you want the token to hold only what limiter actually calls:
 | `hwid-user-devices:list-by-user` | `GET /api/hwid/devices/{userId}` | the "HWID devices" block in alerts; optional |
 | `bandwidth-stats:node-usage` | `POST /api/bandwidth-stats/nodes/usage` | traffic monitoring (`TRAFFIC_MONITOR`); optional |
 | `hwid-user-devices:list` | `GET /api/hwid/devices` | shared HWID search (`SHARED_HWID_MONITOR`); optional |
+| part of `users:*` | `PATCH /api/users` | traffic limit on a shared HWID (`SHARED_HWID_TRAFFIC_LIMIT_MB`) and the “Restore traffic” button; optional |
 
 Read access is enough for nodes: `nodes:*` would also grant write access (restarting and disabling nodes, editing profiles and inbounds), which limiter does not need.
 
@@ -173,6 +174,7 @@ All settings via `.env` or environment variables.
 | `SHARED_HWID_MONITOR` | `false` | Alert when a new device's HWID has already been seen on another account. See [Shared HWID](#shared-hwid-shared_hwid_monitortrue). Can be toggled at runtime via `/settings` |
 | `SHARED_HWID_SQUAD_UUIDS` | — | Comma-separated internal squad UUIDs: only new devices of users in these squads trigger an alert (for example, the trial squad). Matches are searched among all users. Empty means every user is checked. Restart required |
 | `SHARED_HWID_HISTORY_DAYS` | `30` | How many days the limiter remembers the HWID devices it has seen (`0..365`), to find accounts already deleted from the panel. `0` means no history of its own: only accounts still in the panel are compared. See [Shared HWID](#shared-hwid-shared_hwid_monitortrue). Can be changed in `/settings` |
+| `SHARED_HWID_TRAFFIC_LIMIT_MB` | `0` | Traffic limit in MB that the limiter sets itself on the new account of a shared-HWID alert, e.g. `100`. Works only when `SHARED_HWID_SQUAD_UUIDS` is set. `0` = off. See [Traffic limit](#traffic-limit-shared_hwid_traffic_limit_mb). Can be changed in `/settings` |
 | `HEALTH_ADDR` | — | Address of the HTTP liveness endpoint `/healthz` (e.g. `:8080`). Empty = disabled |
 | `LOG_LEVEL` | `info` | Log verbosity: `trace`, `debug`, `info`, `warn`, `error`. At `info` — one summary line per check cycle plus every action taken; `debug` adds the per-IP breakdown and Telegram transport details. Changeable at runtime via `/settings` |
 | `LOG_FORMAT` | `text` | `text` for humans, `json` for log shippers (Loki, ELK). Restart required to change |
@@ -317,6 +319,17 @@ Pick the retention to match how soon people come back for another trial.
 **Limits.** The HWID comes from the client app. Devices are recorded only when the HWID device limit is enabled in the panel. On some platforms reinstalling the app changes the HWID, and it can be spoofed on purpose. So the alert catches those who hide nothing, and it is a reason to check the account, not proof.
 
 It needs the `hwid-user-devices:list` scope; without it the limiter logs one warning and skips the polls.
+
+#### Traffic limit (`SHARED_HWID_TRAFFIC_LIMIT_MB`)
+
+The alert can come with an action: with `SHARED_HWID_TRAFFIC_LIMIT_MB=100` the limiter itself sets a 100 MB traffic limit on the new account (`PATCH /api/users`, `trafficLimitBytes`) right before the alert is sent. A repeated trial is then nearly useless, and the customer sees that the traffic has run out and can buy a subscription.
+
+- It works only when `SHARED_HWID_SQUAD_UUIDS` is set, that is, for the trial squad. Without the filter only the alert is sent, because a paying customer could be cut otherwise.
+- The limit is absolute. If more has already been used, the panel moves the account to `LIMITED`. A limit below the configured one is never raised, and the alert says “left alone: the limit is already …”.
+- The reset strategy (`trafficLimitStrategy`) is not changed. If the trial plan resets daily, the 100 MB are available every day.
+- The previous limit is kept in `hwid:traffic:{id}` for 30 days. The “📶 Restore traffic” button in the alert puts it back and lifts `LIMITED` when the previous limit is enough. If the limit was changed in the panel or by the bot meanwhile (for example, the customer paid), the button changes nothing. The button stays in the alert after other actions.
+- If the panel rejects the change, the alert still goes out, marked “could not be limited”.
+- A bot that sells subscriptions does not know about the cut. On a purchase a bot usually sets the plan's limit again and adds a traffic package to the panel's current limit. Check that your bot does the same.
 
 ### Manual mode (`ACTION_MODE=manual`)
 

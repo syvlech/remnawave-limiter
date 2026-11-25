@@ -301,6 +301,8 @@ func actionResultText(action string) string {
 		return i18n.T("action.ignore_temp")
 	case "enable":
 		return i18n.T("action.enable")
+	case ActionTrafficRestore:
+		return i18n.T("action.traffic_restore")
 	}
 	return i18n.T("action.unknown")
 }

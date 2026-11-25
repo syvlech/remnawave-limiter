@@ -1056,3 +1056,28 @@ func TestCache_UnmarkHWIDReported(t *testing.T) {
 		t.Errorf("снимаются только указанные пары: %v", got)
 	}
 }
+
+func TestCache_TrafficCut(t *testing.T) {
+	c := setupTestCache(t)
+	ctx := context.Background()
+
+	if cut, err := c.GetTrafficCut(ctx, 7); err != nil || cut != nil {
+		t.Fatalf("без записи — nil без ошибки: %+v, %v", cut, err)
+	}
+	if err := c.SaveTrafficCut(ctx, 7, TrafficCut{Previous: 5 << 30, Limit: 100 << 20}, time.Hour); err != nil {
+		t.Fatalf("запись: %v", err)
+	}
+	cut, err := c.GetTrafficCut(ctx, 7)
+	if err != nil || cut == nil || cut.Previous != 5<<30 || cut.Limit != 100<<20 {
+		t.Fatalf("чтение: %+v, %v", cut, err)
+	}
+	if ttl := c.client.TTL(ctx, prefixHWIDTraffic+"7").Val(); ttl <= 0 || ttl > time.Hour {
+		t.Errorf("TTL записи: %v", ttl)
+	}
+	if err := c.DeleteTrafficCut(ctx, 7); err != nil {
+		t.Fatalf("удаление: %v", err)
+	}
+	if cut, _ := c.GetTrafficCut(ctx, 7); cut != nil {
+		t.Errorf("после удаления записи нет: %+v", cut)
+	}
+}

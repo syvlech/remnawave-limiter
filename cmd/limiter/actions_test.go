@@ -12,12 +12,38 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/remnawave/limiter/internal/api"
+	"github.com/remnawave/limiter/internal/cache"
 	"github.com/remnawave/limiter/internal/config"
 	"github.com/remnawave/limiter/internal/telegram"
 )
 
 type fakeBackend struct {
 	calls []string
+	user  *api.UserData
+	cut   *cache.TrafficCut
+}
+
+func (f *fakeBackend) GetUserByID(_ context.Context, id int64) (*api.UserData, error) {
+	f.calls = append(f.calls, fmt.Sprintf("get %d", id))
+	if f.user == nil {
+		return &api.UserData{ID: id}, nil
+	}
+	return f.user, nil
+}
+
+func (f *fakeBackend) SetTrafficLimit(_ context.Context, id int64, limit int64, activate bool) error {
+	f.calls = append(f.calls, fmt.Sprintf("traffic %d=%d activate=%v", id, limit, activate))
+	return nil
+}
+
+func (f *fakeBackend) GetTrafficCut(_ context.Context, id int64) (*cache.TrafficCut, error) {
+	return f.cut, nil
+}
+
+func (f *fakeBackend) DeleteTrafficCut(_ context.Context, id int64) error {
+	f.calls = append(f.calls, fmt.Sprintf("uncut %d", id))
+	f.cut = nil
+	return nil
 }
 
 func (f *fakeBackend) DisableUser(_ context.Context, id int64) error {
@@ -188,5 +214,43 @@ func TestActionHandler_DisableTempRollsBackWithoutTimer(t *testing.T) {
 	}
 	if missing == "" || missing == rolledBack {
 		t.Errorf("если отменить не удалось, текст ошибки должен это отличать: %q и %q", rolledBack, missing)
+	}
+}
+
+func TestActionHandler_TrafficRestore(t *testing.T) {
+	logger := logrus.New()
+	logger.SetOutput(io.Discard)
+	const mb = 1 << 20
+	tr := &api.UserTraffic{UsedTrafficBytes: 300 * mb}
+	cases := []struct {
+		name  string
+		user  *api.UserData
+		cut   *cache.TrafficCut
+		want  string
+		stale bool
+	}{
+		{"нет сохранённого лимита", nil, nil, "", true},
+		{"возврат лимита", &api.UserData{Status: "ACTIVE", TrafficLimitBytes: 100 * mb}, &cache.TrafficCut{Previous: 5120 * mb, Limit: 100 * mb},
+			"get 7|traffic 7=5368709120 activate=false|uncut 7", false},
+		{"LIMITED снова активен", &api.UserData{Status: "LIMITED", TrafficLimitBytes: 100 * mb, UserTraffic: tr}, &cache.TrafficCut{Previous: 0, Limit: 100 * mb},
+			"get 7|traffic 7=0 activate=true|uncut 7", false},
+		{"LIMITED и прежнего лимита мало", &api.UserData{Status: "LIMITED", TrafficLimitBytes: 100 * mb, UserTraffic: tr}, &cache.TrafficCut{Previous: 200 * mb, Limit: 100 * mb},
+			"get 7|traffic 7=209715200 activate=false|uncut 7", false},
+		{"лимит уже изменён в панели", &api.UserData{Status: "ACTIVE", TrafficLimitBytes: 50 * 1024 * mb}, &cache.TrafficCut{Previous: 5120 * mb, Limit: 100 * mb},
+			"get 7|uncut 7", true},
+	}
+	for _, tc := range cases {
+		backend := &fakeBackend{user: tc.user, cut: tc.cut}
+		handler := newActionHandler(backend, backend, config.NewProvider(&config.Config{}), logger)
+		err := handler(context.Background(), telegram.Action{Name: telegram.ActionTrafficRestore, UserID: 7})
+		if tc.stale != errors.Is(err, telegram.ErrStaleAction) {
+			t.Errorf("%s: ошибка %v, ожидалась устаревшая кнопка: %v", tc.name, err, tc.stale)
+		}
+		if !tc.stale && err != nil {
+			t.Errorf("%s: неожиданная ошибка %v", tc.name, err)
+		}
+		if got := strings.Join(backend.calls, "|"); got != tc.want {
+			t.Errorf("%s: вызовы %q, ожидалось %q", tc.name, got, tc.want)
+		}
 	}
 }

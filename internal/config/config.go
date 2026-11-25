@@ -74,6 +74,7 @@ type Config struct {
 	SharedHWIDMonitor     bool
 	SharedHWIDSquadUUIDs  []string
 	SharedHWIDHistoryDays int
+	SharedHWIDTrafficMB   int
 
 	HealthAddr string
 }
@@ -92,6 +93,7 @@ const (
 	MaxMinutes            = 365 * 24 * 60
 	MaxTrafficGB          = 1_000_000
 	MaxHistoryDays        = 365
+	MaxTrafficLimitMB     = 1000000
 )
 
 func LoadConfig(envPath string) (*Config, error) {
@@ -215,6 +217,7 @@ func LoadConfigWithOverrides(envPath string, overrides map[string]string) (*Conf
 		SharedHWIDMonitor:        l.getEnvBool("SHARED_HWID_MONITOR", false),
 		SharedHWIDSquadUUIDs:     parseLowercaseList(l.getEnv("SHARED_HWID_SQUAD_UUIDS", "")),
 		SharedHWIDHistoryDays:    l.getEnvInt("SHARED_HWID_HISTORY_DAYS", 30),
+		SharedHWIDTrafficMB:      l.getEnvInt("SHARED_HWID_TRAFFIC_LIMIT_MB", 0),
 		HealthAddr:               l.getEnv("HEALTH_ADDR", ""),
 	}
 
@@ -276,6 +279,7 @@ func (cfg *Config) Validate() error {
 		{"IGNORE_DURATION", cfg.IgnoreDuration},
 		{"TRAFFIC_HEAVY_GB", cfg.TrafficHeavyGB},
 		{"SHARED_HWID_HISTORY_DAYS", cfg.SharedHWIDHistoryDays},
+		{"SHARED_HWID_TRAFFIC_LIMIT_MB", cfg.SharedHWIDTrafficMB},
 	}
 	for _, p := range nonNegative {
 		if p.value < 0 {
@@ -298,6 +302,7 @@ func (cfg *Config) Validate() error {
 		{"TRAFFIC_SPIKE_MIN_GB", cfg.TrafficSpikeMinGB, MaxTrafficGB},
 		{"TRAFFIC_HEAVY_GB", cfg.TrafficHeavyGB, MaxTrafficGB},
 		{"SHARED_HWID_HISTORY_DAYS", cfg.SharedHWIDHistoryDays, MaxHistoryDays},
+		{"SHARED_HWID_TRAFFIC_LIMIT_MB", cfg.SharedHWIDTrafficMB, MaxTrafficLimitMB},
 	}
 	for _, p := range bounded {
 		if p.value > p.max {

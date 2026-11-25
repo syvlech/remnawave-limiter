@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-telegram/bot/models"
+
 	"github.com/remnawave/limiter/internal/api"
 )
 
@@ -73,5 +75,54 @@ func TestFormatSharedHWIDAlert_ManyAccounts(t *testing.T) {
 	out := FormatSharedHWIDAlert(SharedHWIDAlert{User: &api.CachedUser{UserID: 99, Username: "u"}, HWID: "h", Accounts: accounts, At: time.Now()}, time.UTC)
 	if strings.Count(out, "<tr><td><code>") != maxSharedAccounts || !strings.Contains(out, "… и ещё 3") {
 		t.Errorf("в таблице не больше %d аккаунтов и строка об остальных:\n%s", maxSharedAccounts, out)
+	}
+}
+
+func TestKeptRows_TrafficRestoreSurvivesOtherActions(t *testing.T) {
+	data := actionData(ActionTrafficRestore, 7)
+	rich := &models.Message{RichMessage: &models.RichMessage{Blocks: []models.RichBlock{
+		{Type: models.RichBlockTypeButtons, RichBlockButtons: &models.RichBlockButtons{Buttons: []models.RichMessageButton{{CallbackData: data}}}},
+	}}}
+	plain := &models.Message{ReplyMarkup: &models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{{{CallbackData: data}}}}}
+	for _, msg := range []*models.Message{rich, plain} {
+		if !messageHasButton(msg, data) {
+			t.Errorf("кнопка возврата трафика должна находиться в сообщении: %+v", msg)
+		}
+	}
+	if messageHasButton(&models.Message{}, data) || messageHasButton(nil, data) {
+		t.Error("в сообщении без кнопок её нет")
+	}
+
+	rows := keptRows("disable", 7, true)
+	if len(rows) != 2 || rows[0][0].Data != data || rows[1][0].Data != actionData("enable", 7) {
+		t.Errorf("после отключения остаются «Вернуть трафик» и «Включить»: %+v", rows)
+	}
+	if rows := keptRows(ActionTrafficRestore, 7, true); len(rows) != 0 {
+		t.Errorf("после возврата трафика кнопка пропадает: %+v", rows)
+	}
+	if rows := keptRows("ignore", 7, false); len(rows) != 0 {
+		t.Errorf("без кнопки в алерте ничего не добавляется: %+v", rows)
+	}
+}
+
+func TestFormatSharedHWIDAlert_TrafficRow(t *testing.T) {
+	base := SharedHWIDAlert{User: &api.CachedUser{UserID: 2, Username: "u"}, HWID: "h", At: time.Now()}
+	cases := []struct {
+		cut  TrafficCut
+		want string
+	}{
+		{TrafficCut{State: TrafficLimited, Limit: 100 << 20, Previous: 0, Used: 300 << 20}, "ограничен до 100 МБ (было без лимита, израсходовано 300 МБ)"},
+		{TrafficCut{State: TrafficAlreadyLower, Previous: 50 << 20}, "лимит уже 50 МБ"},
+		{TrafficCut{State: TrafficCutFailed}, "не удалось ограничить"},
+	}
+	for _, tc := range cases {
+		a := base
+		a.Traffic = tc.cut
+		if text := FormatSharedHWIDAlert(a, time.UTC); !strings.Contains(text, tc.want) {
+			t.Errorf("нет %q:\n%s", tc.want, text)
+		}
+	}
+	if text := FormatSharedHWIDAlert(base, time.UTC); strings.Contains(text, "Трафик") {
+		t.Errorf("без урезания строки о трафике нет:\n%s", text)
 	}
 }
